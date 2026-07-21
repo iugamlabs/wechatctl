@@ -1,0 +1,23 @@
+# Binaries
+/wxctl
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+coverage.out
+coverage.html
+vendor/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Local env
+.env
+.env.*
