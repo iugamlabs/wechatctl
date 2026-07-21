@@ -6,8 +6,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/deali/wxctl/internal/instance"
-	"github.com/deali/wxctl/internal/runtime"
+	"github.com/star-plan/wechatctl/internal/instance"
+	"github.com/star-plan/wechatctl/internal/runtime"
 	"github.com/spf13/cobra"
 )
 

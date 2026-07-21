@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/deali/wxctl/internal/config"
-	"github.com/deali/wxctl/internal/paths"
+	"github.com/star-plan/wechatctl/internal/config"
+	"github.com/star-plan/wechatctl/internal/paths"
 )
 
 // Status describes whether an instance process is running.

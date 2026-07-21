@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deali/wxctl/internal/config"
-	"github.com/deali/wxctl/internal/desktop"
-	"github.com/deali/wxctl/internal/paths"
+	"github.com/star-plan/wechatctl/internal/config"
+	"github.com/star-plan/wechatctl/internal/desktop"
+	"github.com/star-plan/wechatctl/internal/paths"
 )
 
 // Manager coordinates instance lifecycle against config + filesystem.

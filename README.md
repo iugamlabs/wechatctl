@@ -7,8 +7,8 @@ Linux 桌面微信多开实例管理工具。通过为每个实例设置独立�
 ## 安装
 
 ```bash
-go install ./cmd/wxctl
-# 或
+go install github.com/star-plan/wechatctl/cmd/wxctl@latest
+# 或本地构建
 go build -o wxctl ./cmd/wxctl
 sudo install -m 755 wxctl /usr/local/bin/wxctl
 ```

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/deali/wxctl/internal/config"
-	"github.com/deali/wxctl/internal/instance"
+	"github.com/star-plan/wechatctl/internal/config"
+	"github.com/star-plan/wechatctl/internal/instance"
 	"github.com/spf13/cobra"
 )
 

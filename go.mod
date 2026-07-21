@@ -1,4 +1,4 @@
-module github.com/deali/wxctl
+module github.com/star-plan/wechatctl
 
 go 1.26.5
 

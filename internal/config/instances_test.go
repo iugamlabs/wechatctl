@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/deali/wxctl/internal/config"
+	"github.com/star-plan/wechatctl/internal/config"
 )
 
 func TestValidateName(t *testing.T) {

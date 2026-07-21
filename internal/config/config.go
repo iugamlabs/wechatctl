@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/deali/wxctl/internal/paths"
+	"github.com/star-plan/wechatctl/internal/paths"
 	toml "github.com/pelletier/go-toml/v2"
 )
 

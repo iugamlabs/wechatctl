@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deali/wxctl/internal/config"
-	"github.com/deali/wxctl/internal/paths"
+	"github.com/star-plan/wechatctl/internal/config"
+	"github.com/star-plan/wechatctl/internal/paths"
 )
 
 // Write creates or updates the .desktop file for an instance.
