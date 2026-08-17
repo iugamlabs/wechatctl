@@ -4,7 +4,7 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 
 build:
-	go build -o wxctl ./cmd/wxctl
+	go build -o wxctl$(shell go env GOEXE) ./cmd/wxctl
 
 install: build
 	install -d $(DESTDIR)$(BINDIR)
