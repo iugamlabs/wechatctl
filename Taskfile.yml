@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+# wxctl 构建任务。用法：task [build|install|test|fmt|vet|clean]
+# 覆盖安装路径：task install PREFIX=/opt  或  task install BINDIR=/usr/local/bin
+version: "3"
+
+vars:
+  APP: wxctl
+  # 对应 Makefile 的 PREFIX ?= /usr/local
+  PREFIX: /usr/local
+  # 对应 Makefile 的 BINDIR ?= $(PREFIX)/bin；可被 CLI 覆盖
+  BINDIR: "{{.PREFIX}}/bin"
+
+tasks:
+  default:
+    desc: 默认构建当前平台二进制
+    cmds:
+      - task: build
+
+  build:
+    desc: 编译 wxctl（Windows 输出 wxctl.exe）
+    cmds:
+      - go build -o {{.APP}}{{exeExt}} ./cmd/wxctl
+
+  install:
+    desc: 安装到 DESTDIR+BINDIR（仅 Linux / macOS）
+    platforms: [linux, darwin]
+    deps: [build]
+    cmds:
+      - install -d {{.DESTDIR}}{{.BINDIR}}
+      - install -m 755 {{.APP}} {{.DESTDIR}}{{.BINDIR}}/{{.APP}}
+
+  test:
+    desc: 运行全部 Go 测试
+    cmds:
+      - go test ./...
+
+  fmt:
+    desc: 格式化全部 Go 源码
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: 对全部包执行 go vet
+    cmds:
+      - go vet ./...
+
+  clean:
+    desc: 删除构建产物
+    cmds:
+      - cmd: rm -f {{.APP}} {{.APP}}.exe
+        platforms: [linux, darwin]
+      - cmd: powershell -NoProfile -Command "Remove-Item -Force -ErrorAction SilentlyContinue '{{.APP}}.exe','{{.APP}}'"
+        platforms: [windows]
