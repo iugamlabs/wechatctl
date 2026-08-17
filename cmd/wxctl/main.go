@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/star-plan/wechatctl/internal/config"
 	"github.com/star-plan/wechatctl/internal/paths"
 	"github.com/star-plan/wechatctl/internal/runtime"
-	"github.com/spf13/cobra"
 )
 
 func main() {
@@ -40,7 +40,7 @@ func loadApp() (appContext, error) {
 func rootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "wxctl",
-		Short:         "Manage multiple WeChat instances on Linux",
+		Short:         "Manage multiple isolated WeChat instances",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -50,6 +50,7 @@ func rootCmd() *cobra.Command {
 		showCmd(),
 		startCmd(),
 		stopCmd(),
+		restartCmd(),
 		statusCmd(),
 		editCmd(),
 		removeCmd(),

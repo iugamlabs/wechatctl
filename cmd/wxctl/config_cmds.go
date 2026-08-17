@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/star-plan/wechatctl/internal/config"
 	"github.com/star-plan/wechatctl/internal/instance"
-	"github.com/spf13/cobra"
 )
 
 func configCmd() *cobra.Command {

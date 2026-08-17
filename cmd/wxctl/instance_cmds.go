@@ -7,9 +7,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/star-plan/wechatctl/internal/backend"
+	"github.com/star-plan/wechatctl/internal/config"
 	"github.com/star-plan/wechatctl/internal/instance"
 	"github.com/star-plan/wechatctl/internal/runtime"
-	"github.com/spf13/cobra"
 )
 
 func createCmd() *cobra.Command {
@@ -35,8 +37,13 @@ func createCmd() *cobra.Command {
 				return err
 			}
 			fmt.Printf("created instance %q\n", inst.Name)
-			fmt.Printf("  home:    %s\n", mgr.HomeDir(inst.Name))
-			fmt.Printf("  desktop: %s\n", app.Layout.DesktopFile(inst.Name))
+			fmt.Printf("  backend:  %s\n", instanceBackend(inst))
+			if inst.Username != "" {
+				fmt.Printf("  user:     %s\n", inst.Username)
+			}
+			fmt.Printf("  home:     %s\n", mgr.HomeDir(inst.Name))
+			fmt.Printf("  shared:   %s\n", mgr.SharedDir(inst))
+			fmt.Printf("  desktop:  %s\n", app.Layout.DesktopFile(inst.Name))
 			return nil
 		},
 	}
@@ -67,7 +74,7 @@ func listCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tALIAS\tSTATUS\tPID\tSIZE\tNOTE")
+			fmt.Fprintln(w, "NAME\tBACKEND\tUSER\tSTATUS\tPID\tSIZE\tALIAS\tNOTE")
 			for _, inst := range list {
 				st := rt.Probe(inst.Name)
 				status := "stopped"
@@ -77,12 +84,14 @@ func listCmd() *cobra.Command {
 					pid = fmt.Sprintf("%d", st.PID)
 				}
 				size, _ := mgr.DataSize(inst.Name)
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					inst.Name,
-					inst.Alias,
+					instanceBackend(inst),
+					mgr.DisplayUser(inst),
 					status,
 					pid,
 					humanSize(size),
+					inst.Alias,
 					inst.Note,
 				)
 			}
@@ -115,11 +124,17 @@ func showCmd() *cobra.Command {
 			fmt.Printf("tags:       %s\n", strings.Join(inst.Tags, ", "))
 			fmt.Printf("note:       %s\n", inst.Note)
 			fmt.Printf("created:    %s\n", inst.CreatedAt.Format(time.RFC3339))
+			fmt.Printf("backend:    %s\n", instanceBackend(inst))
+			if inst.Username != "" {
+				fmt.Printf("username:   %s\n", inst.Username)
+			}
 			fmt.Printf("home:       %s\n", mgr.HomeDir(inst.Name))
 			fmt.Printf("desktop:    %s\n", app.Layout.DesktopFile(inst.Name))
-			fmt.Printf("shared:     %s\n", cfg.SharedDir)
+			fmt.Printf("shared:     %s\n", mgr.SharedDir(inst))
 			fmt.Printf("wechat_bin: %s\n", inst.EffectiveWechatBin(cfg))
-			fmt.Printf("im_module:  %s\n", inst.EffectiveIMModule(cfg))
+			if inst.EffectiveIMModule(cfg) != "" {
+				fmt.Printf("im_module:  %s\n", inst.EffectiveIMModule(cfg))
+			}
 			fmt.Printf("size:       %s\n", humanSize(size))
 			if st.Running {
 				fmt.Printf("status:     running (pid %d)\n", st.PID)
@@ -228,6 +243,13 @@ func removeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&purge, "purge", false, "also delete instance data directory")
 	cmd.Flags().BoolVar(&yes, "yes", false, "skip confirmation when using --purge")
 	return cmd
+}
+
+func instanceBackend(inst config.Instance) string {
+	if name := inst.EffectiveBackend(); name != "" {
+		return name
+	}
+	return backend.DefaultName()
 }
 
 func humanSize(n int64) string {
