@@ -1,164 +1,45 @@
 package runtime
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
 
+	"github.com/star-plan/wechatctl/internal/backend"
 	"github.com/star-plan/wechatctl/internal/config"
 	"github.com/star-plan/wechatctl/internal/paths"
 )
 
-// Status describes whether an instance process is running.
-type Status struct {
-	Name    string
-	Running bool
-	PID     int
-	Error   string
-}
+// Status 描述实例进程是否在运行。
+type Status = backend.Status
 
-// Manager handles process start/stop/status.
+// ExitError 保留子进程退出码，供 CLI 透传。
+type ExitError = backend.ExitError
+
+// Manager 是进程启停的门面，实际工作交给平台 Backend。
 type Manager struct {
 	Layout paths.Layout
 	Config config.Config
 }
 
-func (m Manager) resolved() config.Config {
-	return m.Config.Resolve(m.Layout)
+func (m Manager) backend() backend.Backend {
+	return backend.New(m.Layout, m.Config)
 }
 
-func (m Manager) instanceHome(name string) string {
-	return filepath.Join(m.resolved().ProfilesRoot, name)
-}
-
-// Start runs WeChat in the foreground for the given instance and waits.
+// Start 在前台启动微信并等待退出。
 func (m Manager) Start(inst config.Instance, extraArgs []string) error {
-	cfg := m.resolved()
-	if err := os.MkdirAll(m.Layout.RunDir, 0o755); err != nil {
-		return err
-	}
-	home := m.instanceHome(inst.Name)
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		return err
-	}
-	shared := cfg.SharedDir
-	if err := os.MkdirAll(shared, 0o755); err != nil {
-		return err
-	}
-	link := filepath.Join(home, "Shared")
-	if _, err := os.Lstat(link); os.IsNotExist(err) {
-		if err := os.Symlink(shared, link); err != nil {
-			return err
-		}
-	}
-
-	bin := inst.EffectiveWechatBin(cfg)
-	im := inst.EffectiveIMModule(cfg)
-
-	cmd := exec.Command(bin, extraArgs...)
-	cmd.Dir = home
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = buildEnv(home, inst.Name, im)
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start wechat: %w", err)
-	}
-	pid := cmd.Process.Pid
-	if err := writePid(m.Layout.PidFile(inst.Name), pid); err != nil {
-		_ = cmd.Process.Kill()
-		return err
-	}
-	defer func() { _ = os.Remove(m.Layout.PidFile(inst.Name)) }()
-
-	err := cmd.Wait()
-	if err == nil {
-		return nil
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-			return &ExitError{Code: status.ExitStatus()}
-		}
-	}
-	return err
+	return m.StartWith(inst, backend.StartOptions{ExtraArgs: extraArgs})
 }
 
-// ExitError preserves the child process exit code for the CLI.
-type ExitError struct {
-	Code int
+// StartWith 按选项启动微信。
+func (m Manager) StartWith(inst config.Instance, opts backend.StartOptions) error {
+	return m.backend().Start(inst, opts)
 }
 
-func (e *ExitError) Error() string {
-	return fmt.Sprintf("wechat exited with status %d", e.Code)
-}
-
-func buildEnv(home, name, imModule string) []string {
-	env := os.Environ()
-	env = setEnv(env, "HOME", home)
-	env = setEnv(env, paths.InstanceEnvKey, name)
-	if imModule != "" {
-		env = setEnv(env, "GTK_IM_MODULE", imModule)
-		env = setEnv(env, "QT_IM_MODULE", imModule)
-		env = setEnv(env, "XMODIFIERS", "@im="+imModule)
-	}
-	return env
-}
-
-func setEnv(env []string, key, value string) []string {
-	prefix := key + "="
-	for i, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			env[i] = prefix + value
-			return env
-		}
-	}
-	return append(env, prefix+value)
-}
-
-func writePid(path string, pid int) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-func readPid(path string) (int, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(string(data)))
-}
-
-// Probe returns running status for one instance.
+// Probe 返回单个实例的运行状态。
 func (m Manager) Probe(name string) Status {
-	st := Status{Name: name}
-	pidPath := m.Layout.PidFile(name)
-	pid, err := readPid(pidPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return st
-		}
-		st.Error = err.Error()
-		return st
-	}
-	if !alive(pid) || !belongsToInstance(pid, name) {
-		_ = os.Remove(pidPath)
-		return st
-	}
-	st.Running = true
-	st.PID = pid
-	return st
+	return m.backend().Status(name)
 }
 
-// StatusAll probes many instances.
+// StatusAll 查询多个实例的运行状态。
 func (m Manager) StatusAll(names []string) []Status {
 	out := make([]Status, 0, len(names))
 	for _, n := range names {
@@ -167,59 +48,7 @@ func (m Manager) StatusAll(names []string) []Status {
 	return out
 }
 
-func alive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
-}
-
-func belongsToInstance(pid int, name string) bool {
-	environPath := fmt.Sprintf("/proc/%d/environ", pid)
-	data, err := os.ReadFile(environPath)
-	if err != nil {
-		// If we cannot read environ, fall back to trusting pidfile while process is alive.
-		return true
-	}
-	needle := []byte(paths.InstanceEnvKey + "=" + name)
-	parts := strings.Split(string(data), "\x00")
-	for _, p := range parts {
-		if p == string(needle) {
-			return true
-		}
-	}
-	// Also accept if HOME points at this instance path — soft check via cmdline HOME not available;
-	// without env match, reject to avoid killing unrelated processes.
-	return false
-}
-
-// Stop sends SIGTERM then SIGKILL to the instance process.
+// Stop 停止指定实例。
 func (m Manager) Stop(name string, timeout time.Duration) error {
-	st := m.Probe(name)
-	if !st.Running {
-		return fmt.Errorf("instance %q is not running", name)
-	}
-	proc, err := os.FindProcess(st.PID)
-	if err != nil {
-		return err
-	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !alive(st.PID) {
-			_ = os.Remove(m.Layout.PidFile(name))
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if err := proc.Signal(syscall.SIGKILL); err != nil {
-		return err
-	}
-	time.Sleep(100 * time.Millisecond)
-	_ = os.Remove(m.Layout.PidFile(name))
-	return nil
+	return m.backend().Stop(name, timeout)
 }

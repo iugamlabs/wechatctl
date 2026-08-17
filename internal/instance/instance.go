@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/star-plan/wechatctl/internal/backend"
 	"github.com/star-plan/wechatctl/internal/config"
 	"github.com/star-plan/wechatctl/internal/desktop"
 	"github.com/star-plan/wechatctl/internal/paths"
@@ -20,20 +21,12 @@ type Manager struct {
 	Config config.Config
 }
 
-func (m Manager) resolved() config.Config {
-	return m.Config.Resolve(m.Layout)
-}
-
-func (m Manager) profilesRoot() string {
-	return m.resolved().ProfilesRoot
-}
-
-func (m Manager) sharedDir() string {
-	return m.resolved().SharedDir
+func (m Manager) backend() backend.Backend {
+	return backend.New(m.Layout, m.Config)
 }
 
 func (m Manager) instanceHome(name string) string {
-	return filepath.Join(m.profilesRoot(), name)
+	return m.backend().HomeDir(config.Instance{Name: name})
 }
 
 // CreateOptions for creating an instance.
@@ -57,25 +50,31 @@ func (m Manager) Create(opts CreateOptions) (config.Instance, error) {
 	if err != nil {
 		return config.Instance{}, err
 	}
+	if _, ok := reg.Get(opts.Name); ok {
+		return config.Instance{}, fmt.Errorf("instance %q already exists", opts.Name)
+	}
 	inst := config.Instance{
 		Name:      opts.Name,
 		Alias:     opts.Alias,
 		Tags:      opts.Tags,
 		Note:      opts.Note,
 		CreatedAt: time.Now(),
+		Backend:   backend.DefaultName(),
 	}
+	b := m.backend()
+	res, err := b.Create(inst)
+	if err != nil {
+		return config.Instance{}, err
+	}
+	inst.Backend = res.Backend
+	inst.Username = res.Username
+	inst.EncryptedPassword = res.EncryptedPassword
 	if err := reg.Add(inst); err != nil {
-		return config.Instance{}, err
-	}
-
-	home := m.instanceHome(opts.Name)
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		return config.Instance{}, err
-	}
-	if err := ensureSharedLink(home, m.sharedDir()); err != nil {
+		_ = b.Remove(inst, true)
 		return config.Instance{}, err
 	}
 	if err := config.SaveRegistry(m.Layout, reg); err != nil {
+		_ = b.Remove(inst, true)
 		return config.Instance{}, err
 	}
 	if err := desktop.Write(m.Layout, inst); err != nil {
@@ -84,17 +83,14 @@ func (m Manager) Create(opts CreateOptions) (config.Instance, error) {
 	return inst, nil
 }
 
-func ensureSharedLink(instanceHome, sharedDir string) error {
-	if err := os.MkdirAll(sharedDir, 0o755); err != nil {
-		return err
-	}
-	link := filepath.Join(instanceHome, "Shared")
-	if _, err := os.Lstat(link); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	return os.Symlink(sharedDir, link)
+// DisplayUser 返回实例的隔离身份（Windows 用户名，或 "-"）。
+func (m Manager) DisplayUser(inst config.Instance) string {
+	return m.backend().DisplayUser(inst)
+}
+
+// SharedDir 返回实例可访问的共享目录。
+func (m Manager) SharedDir(inst config.Instance) string {
+	return m.backend().SharedDir(inst)
 }
 
 // List returns all registered instances.
@@ -119,18 +115,21 @@ func (m Manager) Get(name string) (config.Instance, error) {
 	return inst, nil
 }
 
-// HomeDir returns the fake HOME path for an instance (may exist even if unregistered).
+// HomeDir 返回实例数据目录；未注册时按名称推断。
 func (m Manager) HomeDir(name string) string {
+	if inst, err := m.Get(name); err == nil {
+		return m.backend().HomeDir(inst)
+	}
 	return m.instanceHome(name)
 }
 
-// DataSize returns approximate disk usage of the instance home.
+// DataSize 估算实例数据占用；无法访问的文件会被跳过。
 func (m Manager) DataSize(name string) (int64, error) {
 	var total int64
-	root := m.instanceHome(name)
+	root := m.HomeDir(name)
 	err := filepath.Walk(root, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
-			if os.IsNotExist(err) {
+			if os.IsNotExist(err) || os.IsPermission(err) {
 				return nil
 			}
 			return err
@@ -145,11 +144,11 @@ func (m Manager) DataSize(name string) (int64, error) {
 
 // EditOptions for updating metadata.
 type EditOptions struct {
-	Alias    *string
-	Tags     *[]string
-	Note     *string
+	Alias     *string
+	Tags      *[]string
+	Note      *string
 	WechatBin *string
-	IMModule *string
+	IMModule  *string
 }
 
 // Edit updates instance metadata and refreshes desktop.
@@ -203,7 +202,8 @@ func (m Manager) Remove(name string, opts RemoveOptions) error {
 	if err != nil {
 		return err
 	}
-	if _, err := reg.Remove(name); err != nil {
+	removed, err := reg.Remove(name)
+	if err != nil {
 		return err
 	}
 	if err := config.SaveRegistry(m.Layout, reg); err != nil {
@@ -215,11 +215,8 @@ func (m Manager) Remove(name string, opts RemoveOptions) error {
 		return nil
 	}
 
-	home := m.instanceHome(name)
-	if _, err := os.Stat(home); os.IsNotExist(err) {
-		return nil
-	}
-	if !opts.Yes {
+	home := m.backend().HomeDir(removed)
+	if _, err := os.Stat(home); err == nil && !opts.Yes {
 		in := opts.Stdin
 		if in == nil {
 			in = os.Stdin
@@ -238,7 +235,7 @@ func (m Manager) Remove(name string, opts RemoveOptions) error {
 			return fmt.Errorf("confirmation failed; data not deleted (instance already unregistered)")
 		}
 	}
-	return os.RemoveAll(home)
+	return m.backend().Remove(removed, true)
 }
 
 // SyncDesktops regenerates all desktop files for registered instances.
@@ -261,10 +258,10 @@ func (m Manager) SyncDesktops() error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasPrefix(name, paths.DesktopPrefix) || !strings.HasSuffix(name, ".desktop") {
+		if !strings.HasPrefix(name, paths.DesktopPrefix) || !strings.HasSuffix(name, paths.DesktopExt) {
 			continue
 		}
-		instName := strings.TrimSuffix(strings.TrimPrefix(name, paths.DesktopPrefix), ".desktop")
+		instName := strings.TrimSuffix(strings.TrimPrefix(name, paths.DesktopPrefix), paths.DesktopExt)
 		if _, ok := registered[instName]; !ok {
 			_ = os.Remove(filepath.Join(m.Layout.ApplicationsDir, name))
 		}
@@ -329,10 +326,10 @@ func (m Manager) Migrate() (migrated []string, err error) {
 		if err := os.Rename(src, dst); err != nil {
 			return migrated, fmt.Errorf("move %s: %w", name, err)
 		}
-		if err := ensureSharedLink(dst, m.sharedDir()); err != nil {
+		inst := config.Instance{Name: name, CreatedAt: time.Now(), Note: "migrated from wechat-profiles", Backend: backend.DefaultName()}
+		if _, err := m.backend().Create(inst); err != nil {
 			return migrated, err
 		}
-		inst := config.Instance{Name: name, CreatedAt: time.Now(), Note: "migrated from wechat-profiles"}
 		if err := reg.Add(inst); err != nil {
 			return migrated, err
 		}
@@ -349,7 +346,7 @@ func (m Manager) Migrate() (migrated []string, err error) {
 
 // ExportBundle is metadata-only backup.
 type ExportBundle struct {
-	Config    config.Config    `toml:"config"`
+	Config    config.Config     `toml:"config"`
 	Instances []config.Instance `toml:"instance"`
 }
 
@@ -359,9 +356,15 @@ func (m Manager) Export(path string) error {
 	if err != nil {
 		return err
 	}
+	exported := make([]config.Instance, len(reg.Instances))
+	copy(exported, reg.Instances)
+	for i := range exported {
+		// DPAPI 密文绑定当前 Windows 用户，导出时丢弃以免误用。
+		exported[i].EncryptedPassword = ""
+	}
 	bundle := ExportBundle{
 		Config:    config.RelativizeForSave(m.Layout.Home, m.Config),
-		Instances: reg.Instances,
+		Instances: exported,
 	}
 	data, err := marshalBundle(bundle)
 	if err != nil {
@@ -406,13 +409,25 @@ func (m Manager) Import(path string) error {
 	if err != nil {
 		return err
 	}
+	b := m.backend()
 	for _, inst := range bundle.Instances {
 		if err := config.ValidateName(inst.Name); err != nil {
 			continue
 		}
-		home := m.instanceHome(inst.Name)
-		_ = os.MkdirAll(home, 0o755)
-		_ = ensureSharedLink(home, m.sharedDir())
+		inst = normalizeImported(inst)
+		res, err := b.Create(inst)
+		if err != nil {
+			return err
+		}
+		if res.Backend != "" {
+			inst.Backend = res.Backend
+		}
+		if res.Username != "" {
+			inst.Username = res.Username
+		}
+		if res.EncryptedPassword != "" {
+			inst.EncryptedPassword = res.EncryptedPassword
+		}
 		if _, ok := reg.Get(inst.Name); ok {
 			_ = reg.Update(inst)
 		} else {
@@ -424,4 +439,21 @@ func (m Manager) Import(path string) error {
 		_ = desktop.Write(m.Layout, inst)
 	}
 	return config.SaveRegistry(m.Layout, reg)
+}
+
+// normalizeImported 将导入的实例字段对齐到当前平台后端。
+func normalizeImported(inst config.Instance) config.Instance {
+	def := backend.DefaultName()
+	if inst.Backend == backend.BackendWindowsUser && def != backend.BackendWindowsUser {
+		inst.Backend = def
+		inst.Username = ""
+		inst.EncryptedPassword = ""
+	}
+	if def == backend.BackendWindowsUser && inst.Backend != backend.BackendWindowsUser {
+		inst.Backend = def
+	}
+	if inst.Backend == "" {
+		inst.Backend = def
+	}
+	return inst
 }
