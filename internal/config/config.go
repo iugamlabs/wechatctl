@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/star-plan/wechatctl/internal/paths"
 	toml "github.com/pelletier/go-toml/v2"
+	"github.com/star-plan/wechatctl/internal/paths"
 )
 
 // Config is the global wxctl configuration.
@@ -18,13 +18,13 @@ type Config struct {
 	IMModule     string `toml:"im_module"`
 }
 
-// Default returns built-in defaults for a layout.
+// Default 返回当前平台的内置默认配置。
 func Default(layout paths.Layout) Config {
 	return Config{
-		WechatBin:    "/usr/bin/wechat",
+		WechatBin:    defaultWechatBin(),
 		ProfilesRoot: layout.ProfilesRoot,
 		SharedDir:    layout.SharedDir,
-		IMModule:     "fcitx",
+		IMModule:     defaultIMModule(),
 	}
 }
 

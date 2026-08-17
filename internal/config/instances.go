@@ -8,21 +8,24 @@ import (
 	"slices"
 	"time"
 
-	"github.com/star-plan/wechatctl/internal/paths"
 	toml "github.com/pelletier/go-toml/v2"
+	"github.com/star-plan/wechatctl/internal/paths"
 )
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // Instance is a registered WeChat profile.
 type Instance struct {
-	Name      string    `toml:"name"`
-	Alias     string    `toml:"alias,omitempty"`
-	Tags      []string  `toml:"tags,omitempty"`
-	Note      string    `toml:"note,omitempty"`
-	CreatedAt time.Time `toml:"created_at"`
-	WechatBin string    `toml:"wechat_bin,omitempty"`
-	IMModule  string    `toml:"im_module,omitempty"`
+	Name              string    `toml:"name"`
+	Alias             string    `toml:"alias,omitempty"`
+	Tags              []string  `toml:"tags,omitempty"`
+	Note              string    `toml:"note,omitempty"`
+	CreatedAt         time.Time `toml:"created_at"`
+	WechatBin         string    `toml:"wechat_bin,omitempty"`
+	IMModule          string    `toml:"im_module,omitempty"`
+	Backend           string    `toml:"backend,omitempty"`
+	Username          string    `toml:"username,omitempty"`
+	EncryptedPassword string    `toml:"encrypted_password,omitempty"`
 }
 
 // Registry is the instances.toml contents.
@@ -136,4 +139,15 @@ func (inst Instance) EffectiveIMModule(cfg Config) string {
 		return inst.IMModule
 	}
 	return cfg.IMModule
+}
+
+// EffectiveBackend 返回实例后端；空值表示沿用创建时的平台默认。
+func (inst Instance) EffectiveBackend() string {
+	if inst.Backend != "" {
+		return inst.Backend
+	}
+	if inst.Username != "" {
+		return "windows-user"
+	}
+	return ""
 }
