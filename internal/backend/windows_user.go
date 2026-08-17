@@ -55,8 +55,8 @@ func builtinUsersGroupName() (string, error) {
 	return account, nil
 }
 
-// withLoadedProfile 登录并加载用户配置文件，在回调期间 hive 可用，然后卸载。
-func withLoadedProfile(username, password string, fn func(profileDir string) error) error {
+// withLoadedProfile 登录并加载用户配置文件，在回调期间 hive 与 token 可用，然后卸载。
+func withLoadedProfile(username, password string, fn func(token windows.Token, profileDir string) error) error {
 	enableProfilePrivileges()
 	token, err := logonUser(username, ".", password)
 	if err != nil {
@@ -74,7 +74,7 @@ func withLoadedProfile(username, password string, fn func(profileDir string) err
 	if err != nil || profileDir == "" {
 		profileDir = fallbackProfileDir(username)
 	}
-	return fn(profileDir)
+	return fn(token, profileDir)
 }
 
 // fallbackProfileDir 按约定返回 %SystemDrive%\Users\<username>。

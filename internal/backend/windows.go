@@ -59,7 +59,7 @@ func (b windowsUser) Create(inst config.Instance) (CreateResult, error) {
 		_ = grantInteractiveDesktop(sid)
 	}
 
-	if err := withLoadedProfile(username, password, func(profileDir string) error {
+	if err := withLoadedProfile(username, password, func(_ windows.Token, profileDir string) error {
 		if bin := inst.EffectiveWechatBin(b.resolved()); bin != "" {
 			installDir, _ := weixinRuntimeDirs(bin)
 			if installDir != "" {
@@ -69,6 +69,7 @@ func (b windowsUser) Create(inst config.Instance) (CreateResult, error) {
 		if cur, err := currentUserSID(); err == nil {
 			_ = grantModifySID(profileDir, cur)
 		}
+		_ = seedInteractiveHive(username)
 		return nil
 	}); err != nil {
 		return CreateResult{}, fmt.Errorf("initialize profile for %s: %w", username, err)
@@ -142,65 +143,59 @@ func (b windowsUser) Start(inst config.Instance, opts StartOptions) error {
 			return fmt.Errorf("grant desktop access to %s: %w (the isolated user cannot show windows on this desktop)", username, err)
 		}
 	}
-	_ = withLoadedProfile(username, password, func(string) error {
-		return seedWeixinHKCU(username, installDir)
-	})
-
 	env, err := userEnvironment(username, password, inst.Name)
 	if err != nil {
 		env = nil
 	}
+	_ = withLoadedProfile(username, password, func(token windows.Token, _ string) error {
+		_ = seedWeixinHKCU(username, installDir)
+		_ = seedInteractiveHive(username)
+		if e, err := environmentFromToken(token, inst.Name); err == nil {
+			env = e
+		}
+		return nil
+	})
 	env = prependPath(env, versionDir, installDir)
+	_ = ensureCtfmon(username, password)
 
 	cwd := installDir
 	if _, err := os.Stat(cwd); err != nil {
 		cwd = ""
 	}
 
-	flags := uint32(windows.CREATE_UNICODE_ENVIRONMENT | windows.CREATE_SUSPENDED)
-	cmdLine := windows.ComposeCommandLine(append([]string{bin}, opts.ExtraArgs...))
+	// 微信 4 是 Chromium 内核：不能 CREATE_SUSPENDED，也不要放进 Job Object，否则会静默退出。
+	args := append([]string{}, opts.ExtraArgs...)
+	if versionDir != "" && !hasUserLibDir(args) {
+		args = append(args, "--user-lib-dir="+versionDir)
+	}
+	flags := uint32(windows.CREATE_UNICODE_ENVIRONMENT)
+	cmdLine := windows.ComposeCommandLine(append([]string{bin}, args...))
 	pi, err := createProcessWithLogon(username, ".", password, bin, cmdLine, env, cwd, flags, true)
 	if err != nil {
 		return fmt.Errorf("start wechat as %s: %w", username, err)
 	}
 	defer windows.CloseHandle(pi.Thread)
 
-	job, jobErr := openNamedJob(inst.Name)
-	if jobErr == nil {
-		if err := windows.AssignProcessToJobObject(job, pi.Process); err != nil {
-			windows.CloseHandle(job)
-			job = 0
-		} else if opts.Detach {
-			windows.CloseHandle(job)
-			job = 0
-		} else {
-			defer windows.CloseHandle(job)
-		}
-	}
-
-	if _, err := windows.ResumeThread(pi.Thread); err != nil {
-		_ = windows.TerminateProcess(pi.Process, 1)
-		windows.CloseHandle(pi.Process)
-		return fmt.Errorf("resume wechat: %w", err)
-	}
-
 	pid := int(pi.ProcessId)
 	if err := writePid(b.layout.PidFile(inst.Name), pid); err != nil {
-		_ = terminateJob(inst.Name)
 		_ = windows.TerminateProcess(pi.Process, 1)
 		windows.CloseHandle(pi.Process)
 		return err
 	}
 
 	if opts.Detach {
+		if err := waitAliveOrFail(pi.Process, pid); err != nil {
+			windows.CloseHandle(pi.Process)
+			_ = os.Remove(b.layout.PidFile(inst.Name))
+			return err
+		}
+		polishWeixinFrames(uint32(pid), 8*time.Second)
 		windows.CloseHandle(pi.Process)
 		return nil
 	}
 	defer func() { _ = os.Remove(b.layout.PidFile(inst.Name)) }()
 	defer windows.CloseHandle(pi.Process)
-	if job != 0 {
-		return waitJob(inst.Name, pi.Process)
-	}
+	go polishWeixinFrames(uint32(pid), 10*time.Second)
 	return waitProcess(pi.Process, inst.Name)
 }
 

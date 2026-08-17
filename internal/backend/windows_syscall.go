@@ -131,6 +131,8 @@ func createProcessWithLogon(username, domain, password, appName, cmdLine string,
 			return pi, err
 		}
 		si.Desktop = desktop
+		si.Flags = windows.STARTF_USESHOWWINDOW
+		si.ShowWindow = windows.SW_SHOWNORMAL
 	} else {
 		flags |= createNoWindow | detachedProcess
 	}

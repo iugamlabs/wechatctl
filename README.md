@@ -76,6 +76,8 @@ wxctl create work
 
 前提：微信客户端本身已解除单实例限制。`wxctl` 不负责微信多开 Hook，只负责实例隔离。
 
+Windows 实现过程中的具体问题（DLL 加载、桌面授权、Chromium Job、灰框、输入法等）见 [docs/windows-pitfalls.md](docs/windows-pitfalls.md)。
+
 ## 数据布局
 
 ### Linux

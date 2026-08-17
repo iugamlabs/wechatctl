@@ -5,7 +5,10 @@ package backend
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -92,14 +95,21 @@ func processAlive(pid int) bool {
 	return code == stillActive
 }
 
-// terminatePID 强制结束单个进程。
+// terminatePID 强制结束单个进程，必要时回退到 taskkill。
 func terminatePID(pid int) error {
 	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
-	if err != nil {
-		return err
+	if err == nil {
+		defer windows.CloseHandle(h)
+		if err := windows.TerminateProcess(h, 1); err == nil {
+			return nil
+		}
 	}
-	defer windows.CloseHandle(h)
-	return windows.TerminateProcess(h, 1)
+	cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+	out, err2 := cmd.CombinedOutput()
+	if err2 != nil {
+		return fmt.Errorf("terminate pid %d: %v; taskkill: %w: %s", pid, err, err2, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // requestClose 向目标进程的顶层窗口投递 WM_CLOSE。
@@ -199,19 +209,53 @@ func waitProcess(proc windows.Handle, name string) error {
 	}
 }
 
-// userEnvironment 构造目标用户的环境块，并注入 WXCTL_INSTANCE。
+// userEnvironment 登录用户并构造环境块。
 func userEnvironment(username, password, instance string) ([]uint16, error) {
 	token, err := logonUser(username, ".", password)
 	if err != nil {
 		return nil, err
 	}
 	defer token.Close()
+	return environmentFromToken(token, instance)
+}
+
+// environmentFromToken 在已加载 Profile 的令牌上生成环境块，并注入 WXCTL_INSTANCE。
+func environmentFromToken(token windows.Token, instance string) ([]uint16, error) {
 	var block *uint16
 	if err := windows.CreateEnvironmentBlock(&block, token, false); err != nil {
 		return nil, err
 	}
 	defer windows.DestroyEnvironmentBlock(block)
 	return appendEnvUTF16(block, paths.InstanceEnvKey+"="+instance), nil
+}
+
+// hasUserLibDir 判断参数里是否已有 --user-lib-dir。
+func hasUserLibDir(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "--user-lib-dir") {
+			return true
+		}
+	}
+	return false
+}
+
+// waitAliveOrFail 短暂等待后确认微信仍在运行；立即退出通常是单实例互斥或内核启动失败。
+func waitAliveOrFail(proc windows.Handle, pid int) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var code uint32
+		if err := windows.GetExitCodeProcess(proc, &code); err != nil {
+			break
+		}
+		if code != stillActive {
+			return fmt.Errorf("wechat pid %d exited immediately (status 0x%X). If another Weixin window is already open, its single-instance check may still apply across Windows users — close it and retry, or confirm your multi-open hook works for other users", pid, code)
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	if !processAlive(pid) {
+		return fmt.Errorf("wechat pid %d is no longer running. If another Weixin window is already open, close it and retry", pid)
+	}
+	return nil
 }
 
 // appendEnvUTF16 复制 UTF-16 环境块并追加额外条目。
