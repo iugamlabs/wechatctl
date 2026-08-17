@@ -14,41 +14,16 @@ const (
 
 // Layout holds resolved filesystem paths for wxctl.
 type Layout struct {
-	Home           string
-	ConfigDir      string
-	ConfigFile     string
-	InstancesFile  string
-	DataDir        string
-	ProfilesRoot   string
-	RunDir         string
+	Home            string
+	ConfigDir       string
+	ConfigFile      string
+	InstancesFile   string
+	DataDir         string
+	ProfilesRoot    string
+	RunDir          string
 	ApplicationsDir string
-	SharedDir      string
-	LegacyRoot     string
-}
-
-// DefaultLayout resolves XDG-based paths using the real user home.
-func DefaultLayout() (Layout, error) {
-	home, err := realHome()
-	if err != nil {
-		return Layout{}, err
-	}
-
-	configDir := filepath.Join(xdgConfigHome(home), AppName)
-	dataDir := filepath.Join(xdgDataHome(home), AppName)
-	appsDir := filepath.Join(xdgDataHome(home), "applications")
-
-	return Layout{
-		Home:            home,
-		ConfigDir:       configDir,
-		ConfigFile:      filepath.Join(configDir, "config.toml"),
-		InstancesFile:   filepath.Join(configDir, "instances.toml"),
-		DataDir:         dataDir,
-		ProfilesRoot:    filepath.Join(dataDir, "instances"),
-		RunDir:          filepath.Join(dataDir, "run"),
-		ApplicationsDir: appsDir,
-		SharedDir:       filepath.Join(home, "Documents", "WeChat-Shared"),
-		LegacyRoot:      filepath.Join(xdgDataHome(home), LegacyProfilesDir),
-	}, nil
+	SharedDir       string
+	LegacyRoot      string
 }
 
 func realHome() (string, error) {
@@ -62,21 +37,7 @@ func realHome() (string, error) {
 	return h, nil
 }
 
-func xdgConfigHome(home string) string {
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return v
-	}
-	return filepath.Join(home, ".config")
-}
-
-func xdgDataHome(home string) string {
-	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
-		return v
-	}
-	return filepath.Join(home, ".local", "share")
-}
-
-// ExpandPath expands leading ~ to home.
+// ExpandPath 将前导 ~ 展开为 home，同时接受 / 与 \。
 func ExpandPath(home, p string) string {
 	if p == "" {
 		return p
@@ -84,7 +45,7 @@ func ExpandPath(home, p string) string {
 	if p == "~" {
 		return home
 	}
-	if len(p) >= 2 && p[0] == '~' && p[1] == '/' {
+	if len(p) >= 2 && p[0] == '~' && (p[1] == '/' || p[1] == '\\') {
 		return filepath.Join(home, p[2:])
 	}
 	return p
@@ -100,7 +61,7 @@ func (l Layout) PidFile(name string) string {
 	return filepath.Join(l.RunDir, name+".pid")
 }
 
-// DesktopFile returns the .desktop path for an instance.
+// DesktopFile 返回实例启动器路径（Linux 为 .desktop，Windows 为 .lnk）。
 func (l Layout) DesktopFile(name string) string {
-	return filepath.Join(l.ApplicationsDir, DesktopPrefix+name+".desktop")
+	return filepath.Join(l.ApplicationsDir, DesktopPrefix+name+DesktopExt)
 }
