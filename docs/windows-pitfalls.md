@@ -87,15 +87,18 @@ Weixin.exe --user-lib-dir="C:\Program Files\Tencent\Weixin\4.1.7.33" --no-sandbo
 
 隔离用户没有走 winlogon/userinit，视觉样式 / DWM 非客户区渲染失败。微信 4 自己画标题栏，外面再被系统套一层经典灰框。
 
-只抄 `ThemeManager` 注册表通常不够。启动后枚举该进程树的可见顶层窗口，再：
+只抄 `ThemeManager` 注册表通常不够。隔离用户进程用不上当前会话的视觉样式，这是 Windows 对 RunAs 的长期限制，没法靠「把主题初始化完整」根治。
 
-* 去掉多余的 `WS_CAPTION` / `WS_DLGFRAME` 和 `WS_EX_*EDGE`
-* `DWMWA_NCRENDERING_POLICY = ENABLED`
-* `DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE`
-* `DWMWA_WINDOW_CORNER_PREFERENCE = ROUND`
-* `SetWindowPos(..., SWP_FRAMECHANGED)`
+登录窗和主界面是**不同 HWND**：登录成功后主窗口才创建。启动后只轮询几秒，只能修到登录窗。
 
-窗口出现较晚，需要轮询几秒。不要对工具窗口或过小的窗口动手。
+做法是进程外 `SetWinEventHook`（`WINEVENT_OUTOFCONTEXT`，不注入微信）：
+
+* `start` 拉起隐藏的 `wxctl _watch-frame <pid>`
+* 监听 `EVENT_OBJECT_CREATE` / `EVENT_OBJECT_SHOW`
+* 属于该进程树的可见大窗口立刻修边框（去掉多余 NC 样式，DWM 圆角、无系统边框色）
+* 微信进程树退出后 watcher 自行结束
+
+不要对工具窗口或过小的窗口动手。
 
 ## 8. 输入法：隔离用户没有 TSF
 
