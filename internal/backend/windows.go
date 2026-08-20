@@ -183,19 +183,21 @@ func (b windowsUser) Start(inst config.Instance, opts StartOptions) error {
 		return err
 	}
 
+	if err := SpawnFrameWatcher(uint32(pid)); err != nil {
+		go polishWeixinFrames(uint32(pid), 8*time.Second)
+	}
+
 	if opts.Detach {
 		if err := waitAliveOrFail(pi.Process, pid); err != nil {
 			windows.CloseHandle(pi.Process)
 			_ = os.Remove(b.layout.PidFile(inst.Name))
 			return err
 		}
-		polishWeixinFrames(uint32(pid), 8*time.Second)
 		windows.CloseHandle(pi.Process)
 		return nil
 	}
 	defer func() { _ = os.Remove(b.layout.PidFile(inst.Name)) }()
 	defer windows.CloseHandle(pi.Process)
-	go polishWeixinFrames(uint32(pid), 10*time.Second)
 	return waitProcess(pi.Process, inst.Name)
 }
 

@@ -59,6 +59,7 @@ func rootCmd() *cobra.Command {
 		migrateCmd(),
 		exportCmd(),
 		importCmd(),
+		watchFrameCmd(),
 	)
 	return cmd
 }
