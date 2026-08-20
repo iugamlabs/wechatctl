@@ -83,33 +83,44 @@ Weixin.exe --user-lib-dir="C:\Program Files\Tencent\Weixin\4.1.7.33" --no-sandbo
 
 单实例检查往往是会话级 / `Global\` 互斥体，**换 Windows 用户也挡不住**。本机已有微信窗口时，第二个 `Weixin.exe` 可能直接退出。`wxctl` 不负责 Hook；若立刻退出，先关掉已有微信再试，或确认 Hook 对「其他 Windows 用户」也生效。
 
-## 7. 灰色边框：经典非客户区套在自定义标题栏外
+## 7. 灰色边框：事后改窗口样式治不好
 
 隔离用户没有走 winlogon/userinit，视觉样式 / DWM 非客户区渲染失败。微信 4 自己画标题栏，外面再被系统套一层经典灰框。
 
-只抄 `ThemeManager` 注册表通常不够。隔离用户进程用不上当前会话的视觉样式，这是 Windows 对 RunAs 的长期限制，没法靠「把主题初始化完整」根治。
+只抄 `ThemeManager` 注册表不够。隔离用户进程用不上**当前交互登录会话**的主题，这是 Windows 对 RunAs / `CreateProcessWithLogonW` 的长期限制。
 
-登录窗和主界面是**不同 HWND**：登录成功后主窗口才创建。启动后只轮询几秒，只能修到登录窗。
+实测过两套「窗口出现后再改样式」的办法，**都没能稳定去掉灰框**：
 
-做法是进程外 `SetWinEventHook`（`WINEVENT_OUTOFCONTEXT`，不注入微信）：
+1. **启动后短时轮询 `EnumWindows`**  
+   去掉 `WS_CAPTION` / `WS_DLGFRAME`、清 `WS_EX_*EDGE`，并设  
+   `DWMWA_NCRENDERING_POLICY` / `DWMWA_BORDER_COLOR` / `DWMWA_WINDOW_CORNER_PREFERENCE`。  
+   有一次看起来对**登录窗**生效：先有灰框，等一会消失。点登录进主界面后灰框又回来。  
+   原因：登录窗和主界面是**不同 HWND**，登录成功后主窗口才创建，几秒轮询早已结束。
 
-* `start` 拉起隐藏的 `wxctl _watch-frame <pid>`
-* 监听 `EVENT_OBJECT_CREATE` / `EVENT_OBJECT_SHOW`
-* 属于该进程树的可见大窗口立刻修边框（去掉多余 NC 样式，DWM 圆角、无系统边框色）
-* 微信进程树退出后 watcher 自行结束
+2. **进程外 `SetWinEventHook`（`WINEVENT_OUTOFCONTEXT`）**  
+   `start` 拉起隐藏的 `wxctl _watch-frame <pid>`，监听 `EVENT_OBJECT_CREATE` / `SHOW`，对进程树里的大窗口立刻修边框，微信退出后 watcher 结束。  
+   这比轮询覆盖得全，也不是注入微信进程。但实测**登录窗和主界面仍然都有灰色边框**。
 
-不要对工具窗口或过小的窗口动手。
+结论：
 
-## 8. 输入法：隔离用户没有 TSF
+* 灰框来自系统给「另一用户 token」画的经典非客户区，不是漏修了某个 HWND。
+* 微信 / Chromium 可能在创建后自己再改窗口样式，外部 `SetWindowLong` / `DwmSetWindowAttribute` 会被盖掉，或 DWM 根本不给该 token 做现代非客户区。
+* 靠外部改 HWND **不能作为可靠方案**。要根治需要进程内配合（例如注入 `uxtheme`、改隔离后端），或接受灰框。当前 `windows-user` 后端把这视为已知限制。
 
-IME 挂在用户会话上。另一用户的进程默认没有 `ctfmon` / TSF，表现为不能切中文。
+## 8. 输入法：隔离用户没有可用的 TSF
 
-启动微信前：
+IME 挂在**当前登录用户的会话服务**上，不是随任意进程 token 自动出现。另一用户的 GUI 默认不能切中文。
 
-1. 把当前用户的 `Software\Microsoft\CTF`、`Keyboard Layout`、`Control Panel\International`、主题和 DPI 相关键写进隔离用户 hive
+试过：
+
+1. 把当前用户的 `Software\Microsoft\CTF`、`Keyboard Layout`、`Control Panel\International`、主题和 DPI 键写进隔离用户 hive
 2. 以隔离用户、绑定 `winsta0\default` 启动 `System32\ctfmon.exe`
 
-Windows 11 的 `TextInputHost` 属于当前登录用户，跨用户本来就不完整。微软拼音可能仍异常；安装为「所有用户」的第三方输入法往往更稳。
+实测**仍无法使用输入法**（登录窗、主界面都一样）。
+
+Windows 11 的 `TextInputHost` 属于当前登录用户，跨用户调用本来就不完整。抄注册表 + 拉 `ctfmon` 不足以把 IME 接到另一用户的微信进程上。
+
+第三方输入法若安装为「所有用户」也许略好，但未作为可靠方案验证。当前视为 `windows-user` 的已知限制：能隔离登录态，交互体验（主题边框、输入法）弱于本机用户直接打开的微信。
 
 ## 9. 其它注意点
 
@@ -135,4 +146,6 @@ wxctl start work --detach
 wxctl list
 ```
 
-确认：弹出登录窗、无 `0xc06d007e` / `0xc0000142`、灰框可接受或已去掉、能输入、退出后再 `start` 登录态还在。
+确认：弹出登录窗、无 `0xc06d007e` / `0xc0000142`、退出后再 `start` 登录态还在。
+
+已知未解决：灰色系统边框、隔离用户进程内无法使用输入法（见第 7、8 节）。
