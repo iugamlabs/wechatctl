@@ -50,7 +50,7 @@ func (b linuxHome) Create(inst config.Instance) (CreateResult, error) {
 
 // Start 以前台或分离方式启动微信。
 func (b linuxHome) Start(inst config.Instance, opts StartOptions) error {
-	if inst.Backend == BackendWindowsUser {
+	if inst.Backend != "" && inst.Backend != BackendLinuxHome {
 		return fmt.Errorf("instance %q uses backend %s which is not supported on this platform", inst.Name, inst.Backend)
 	}
 	cfg := b.resolved()

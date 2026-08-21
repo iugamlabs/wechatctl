@@ -7,12 +7,10 @@ import (
 	"github.com/star-plan/wechatctl/internal/config"
 )
 
-func TestInstanceWindowsFieldsRoundTrip(t *testing.T) {
+func TestInstanceBackendRoundTrip(t *testing.T) {
 	reg := config.Registry{Instances: []config.Instance{{
-		Name:              "work",
-		Backend:           "windows-user",
-		Username:          "wechatctl_work",
-		EncryptedPassword: "abc",
+		Name:    "work",
+		Backend: "windows-redirect",
 	}}}
 	data, err := toml.Marshal(reg)
 	if err != nil {
@@ -26,10 +24,10 @@ func TestInstanceWindowsFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("instances=%d", len(got.Instances))
 	}
 	inst := got.Instances[0]
-	if inst.Backend != "windows-user" || inst.Username != "wechatctl_work" || inst.EncryptedPassword != "abc" {
+	if inst.Backend != "windows-redirect" {
 		t.Fatalf("round trip mismatch: %+v", inst)
 	}
-	if inst.EffectiveBackend() != "windows-user" {
+	if inst.EffectiveBackend() != "windows-redirect" {
 		t.Fatalf("EffectiveBackend=%q", inst.EffectiveBackend())
 	}
 }

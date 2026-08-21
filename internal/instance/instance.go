@@ -67,8 +67,6 @@ func (m Manager) Create(opts CreateOptions) (config.Instance, error) {
 		return config.Instance{}, err
 	}
 	inst.Backend = res.Backend
-	inst.Username = res.Username
-	inst.EncryptedPassword = res.EncryptedPassword
 	if err := reg.Add(inst); err != nil {
 		_ = b.Remove(inst, true)
 		return config.Instance{}, err
@@ -358,10 +356,6 @@ func (m Manager) Export(path string) error {
 	}
 	exported := make([]config.Instance, len(reg.Instances))
 	copy(exported, reg.Instances)
-	for i := range exported {
-		// DPAPI 密文绑定当前 Windows 用户，导出时丢弃以免误用。
-		exported[i].EncryptedPassword = ""
-	}
 	bundle := ExportBundle{
 		Config:    config.RelativizeForSave(m.Layout.Home, m.Config),
 		Instances: exported,
@@ -422,12 +416,6 @@ func (m Manager) Import(path string) error {
 		if res.Backend != "" {
 			inst.Backend = res.Backend
 		}
-		if res.Username != "" {
-			inst.Username = res.Username
-		}
-		if res.EncryptedPassword != "" {
-			inst.EncryptedPassword = res.EncryptedPassword
-		}
 		if _, ok := reg.Get(inst.Name); ok {
 			_ = reg.Update(inst)
 		} else {
@@ -444,12 +432,8 @@ func (m Manager) Import(path string) error {
 // normalizeImported 将导入的实例字段对齐到当前平台后端。
 func normalizeImported(inst config.Instance) config.Instance {
 	def := backend.DefaultName()
-	if inst.Backend == backend.BackendWindowsUser && def != backend.BackendWindowsUser {
-		inst.Backend = def
-		inst.Username = ""
-		inst.EncryptedPassword = ""
-	}
-	if def == backend.BackendWindowsUser && inst.Backend != backend.BackendWindowsUser {
+	// 导入元数据始终使用当前平台的主后端，避免保留已移除的跨用户后端。
+	if inst.Backend != "" && inst.Backend != def {
 		inst.Backend = def
 	}
 	if inst.Backend == "" {

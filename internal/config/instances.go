@@ -16,16 +16,14 @@ var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // Instance is a registered WeChat profile.
 type Instance struct {
-	Name              string    `toml:"name"`
-	Alias             string    `toml:"alias,omitempty"`
-	Tags              []string  `toml:"tags,omitempty"`
-	Note              string    `toml:"note,omitempty"`
-	CreatedAt         time.Time `toml:"created_at"`
-	WechatBin         string    `toml:"wechat_bin,omitempty"`
-	IMModule          string    `toml:"im_module,omitempty"`
-	Backend           string    `toml:"backend,omitempty"`
-	Username          string    `toml:"username,omitempty"`
-	EncryptedPassword string    `toml:"encrypted_password,omitempty"`
+	Name      string    `toml:"name"`
+	Alias     string    `toml:"alias,omitempty"`
+	Tags      []string  `toml:"tags,omitempty"`
+	Note      string    `toml:"note,omitempty"`
+	CreatedAt time.Time `toml:"created_at"`
+	WechatBin string    `toml:"wechat_bin,omitempty"`
+	IMModule  string    `toml:"im_module,omitempty"`
+	Backend   string    `toml:"backend,omitempty"`
 }
 
 // Registry is the instances.toml contents.
@@ -145,9 +143,6 @@ func (inst Instance) EffectiveIMModule(cfg Config) string {
 func (inst Instance) EffectiveBackend() string {
 	if inst.Backend != "" {
 		return inst.Backend
-	}
-	if inst.Username != "" {
-		return "windows-user"
 	}
 	return ""
 }

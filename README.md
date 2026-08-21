@@ -1,6 +1,6 @@
 # wxctl
 
-微信多开实例管理工具。Linux 通过独立 `HOME` 隔离，Windows 通过独立本地用户隔离，从而同时运行多个微信账号并保留各自登录态。
+微信多开实例管理工具。Linux 通过独立 `HOME` 隔离；Windows 保持当前登录用户不变，仅为每个微信实例重定向独立的 AppData 数据目录，从而同时运行多个账号并保留各自登录态。
 
 > 旧脚本 [scripts/wechat-profile.sh](scripts/wechat-profile.sh) 仅用于验证 Linux 机制，已被 `wxctl` 取代，请勿再手工维护。
 
@@ -15,7 +15,7 @@ go build -o wxctl.exe ./cmd/wxctl      # Windows
 
 Linux 下可再执行 `sudo install -m 755 wxctl /usr/local/bin/wxctl`。请确保 `wxctl` 在 `PATH` 中，以便桌面 / 开始菜单快捷方式能正确启动。
 
-Windows 上 `create` 和 `remove --purge` 需要**以管理员身份**运行终端；`start` / `stop` 不需要提升权限。
+Windows 的默认 `windows-redirect` 后端不需要管理员权限；`create`、`start`、`stop` 和 `remove --purge` 均在当前登录用户下运行。
 
 ## 快速开始
 
@@ -62,21 +62,22 @@ wxctl remove work --purge --yes
 实例 B → ~/.local/share/wxctl/instances/b
 ```
 
-### Windows：`windows-user`
+### Windows：`windows-redirect`
 
-为每个实例创建独立本地用户，再用 `CreateProcessWithLogonW` + `LOGON_WITH_PROFILE` 启动同一份 `Weixin.exe`。微信窗口仍显示在当前桌面，无需切换 Windows 用户。
+每个实例仍由**当前 Windows 登录用户**通过普通进程创建启动。wxctl 复制当前环境变量，仅覆盖 `APPDATA`、`LOCALAPPDATA` 和 `WXCTL_INSTANCE`，并将工作目录设为微信安装目录；对新版 `Weixin.exe` 自动传入对应的 `--user-lib-dir`。
 
 ```text
 wxctl create work
-    → 本地用户 wechatctl_work
-    → DPAPI 加密保存密码
-    → 初始化 User Profile
-    → 配置共享目录 ACL
+    → %LOCALAPPDATA%\wxctl\instances\work\AppData\Roaming
+    → %LOCALAPPDATA%\wxctl\instances\work\AppData\Local
+    → %LOCALAPPDATA%\wxctl\instances\work\Documents（预建，供验证）
 ```
 
-前提：微信客户端本身已解除单实例限制。`wxctl` 不负责微信多开 Hook，只负责实例隔离。
+不会创建本地用户，不会加载其他 Windows Profile，也不会隔离或修改注册表。`USERPROFILE`、`HOMEDRIVE` 和 `HOMEPATH` 保持当前用户值，以避免影响 DWM、主题、TSF/中文输入法、剪贴板、拖拽和托盘等桌面能力。
 
-Windows 实现过程中的具体问题（DLL 加载、桌面授权、Chromium Job、灰框、输入法等）见 [docs/windows-pitfalls.md](docs/windows-pitfalls.md)。
+旧 `windows-user` 后端已移除。保留该后端标识的历史实例不能再启动；请在确认聊天数据备份后，用 `wxctl create <name>` 创建新的 `windows-redirect` 实例。wxctl 不会自动删除旧本地用户或其 Profile。
+
+前提：微信客户端本身已解除单实例限制。`wxctl` 不负责微信多开 Hook，只负责实例数据目录隔离。
 
 ## 数据布局
 
@@ -105,15 +106,16 @@ Windows 实现过程中的具体问题（DLL 加载、桌面授权、Chromium Jo
   instances.toml
 
 %LOCALAPPDATA%\wxctl\
+  instances\<name>\
+    AppData\Roaming\          # 该实例的 %APPDATA%
+    AppData\Local\            # 该实例的 %LOCALAPPDATA%
+    Documents\                 # 已创建；是否被微信使用需实测
   run\<name>.pid
 
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\wxctl\
   wxctl-<name>.lnk
 
-%PUBLIC%\wechatctl-share\
-  <name>\               # 主用户与 wechatctl_<name> 均可读写
-
-C:\Users\wechatctl_<name>\   # 该实例的微信登录态 / 配置 / 缓存
+%PUBLIC%\wechatctl-share\     # 项目已有的可选共享目录
 ```
 
 所有实例共享同一份微信程序，例如 `C:\Program Files\Tencent\Weixin\Weixin.exe`，不要为每个实例复制一套微信。
@@ -148,7 +150,7 @@ wxctl export ~/wxctl-meta.toml
 wxctl import ~/wxctl-meta.toml
 ```
 
-Windows 导入会按需重建本地用户；聊天数据请自行备份对应 `C:\Users\wechatctl_<name>`。
+Windows 导入会创建对应的实例目录；聊天数据请自行备份 `%LOCALAPPDATA%\wxctl\instances\<name>`。导入时实例统一转换为当前平台的主后端。
 
 重建全部菜单入口：
 
@@ -178,8 +180,7 @@ wxctl desktop sync
 
 - 实例名仅允许 `[a-zA-Z0-9_-]+`；中文显示名请用 `--alias`
 - Linux 启动时注入 `HOME`、`WXCTL_INSTANCE` 以及 Fcitx 相关输入法环境变量
-- Windows 以 `wechatctl_<name>` 本地用户启动，密码用当前用户 DPAPI 加密保存在 `instances.toml`
-- Windows 用户名最长 20 字符；超长实例名会自动缩短
+- Windows 当前阶段只验证 `APPDATA` / `LOCALAPPDATA` 重定向。若实测发现 `xwechat_files` 仍写入真实 Documents，才会评估一个仅重定向 RoamingAppData、LocalAppData、Documents 的 Known Folder Hook；不会实现通用文件系统或注册表虚拟化。
 - 不设置缩放相关环境变量
 - 第一版不探测微信号，请用 alias/note 自行标注账号用途
-- Sandboxie 不是当前方案；隔离依赖操作系统用户 / HOME，而不是第三方沙箱
+- Sandboxie 不是当前方案；隔离依赖当前用户进程环境，而不是第三方沙箱

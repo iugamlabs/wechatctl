@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -172,20 +171,4 @@ func desktopCmd() *cobra.Command {
 		},
 	})
 	return cmd
-}
-
-func watchFrameCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "_watch-frame <pid>",
-		Short:  "Internal: polish Weixin frames until the process tree exits",
-		Hidden: true,
-		Args:   cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pid, err := strconv.Atoi(args[0])
-			if err != nil || pid <= 0 {
-				return fmt.Errorf("invalid pid %q", args[0])
-			}
-			return backend.WatchWeixinFrames(uint32(pid))
-		},
-	}
 }

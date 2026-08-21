@@ -11,8 +11,8 @@ import (
 const (
 	// BackendLinuxHome 通过独立 HOME 目录隔离实例。
 	BackendLinuxHome = "linux-home"
-	// BackendWindowsUser 通过独立本地 Windows 用户隔离实例。
-	BackendWindowsUser = "windows-user"
+	// BackendWindowsRedirect 使用当前 Windows 登录用户，只重定向微信的数据目录。
+	BackendWindowsRedirect = "windows-redirect"
 )
 
 // Status 描述实例进程是否在运行。
@@ -40,14 +40,12 @@ type StartOptions struct {
 
 // CreateResult 保存需要写入实例注册表的平台字段。
 type CreateResult struct {
-	Backend           string
-	Username          string
-	EncryptedPassword string
+	Backend string
 }
 
 // Backend 负责平台相关的实例隔离与进程控制。
 type Backend interface {
-	// Name 返回后端标识，例如 linux-home 或 windows-user。
+	// Name 返回后端标识，例如 linux-home 或 windows-redirect。
 	Name() string
 	// Create 创建实例隔离环境（目录或 Windows 用户）。
 	Create(inst config.Instance) (CreateResult, error)

@@ -38,9 +38,6 @@ func createCmd() *cobra.Command {
 			}
 			fmt.Printf("created instance %q\n", inst.Name)
 			fmt.Printf("  backend:  %s\n", instanceBackend(inst))
-			if inst.Username != "" {
-				fmt.Printf("  user:     %s\n", inst.Username)
-			}
 			fmt.Printf("  home:     %s\n", mgr.HomeDir(inst.Name))
 			fmt.Printf("  shared:   %s\n", mgr.SharedDir(inst))
 			fmt.Printf("  desktop:  %s\n", app.Layout.DesktopFile(inst.Name))
@@ -125,9 +122,6 @@ func showCmd() *cobra.Command {
 			fmt.Printf("note:       %s\n", inst.Note)
 			fmt.Printf("created:    %s\n", inst.CreatedAt.Format(time.RFC3339))
 			fmt.Printf("backend:    %s\n", instanceBackend(inst))
-			if inst.Username != "" {
-				fmt.Printf("username:   %s\n", inst.Username)
-			}
 			fmt.Printf("home:       %s\n", mgr.HomeDir(inst.Name))
 			fmt.Printf("desktop:    %s\n", app.Layout.DesktopFile(inst.Name))
 			fmt.Printf("shared:     %s\n", mgr.SharedDir(inst))
