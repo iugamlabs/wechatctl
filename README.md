@@ -1,6 +1,6 @@
 # wxctl
 
-仅支持 Linux 的微信多开实例管理工具。每个实例通过独立 `HOME` 目录隔离，从而同时运行多个账号并保留各自登录态。
+Linux 桌面微信多开实例管理工具。通过为每个实例设置独立的 `HOME`，在同一用户下运行多个微信账号。
 
 > 旧脚本 [scripts/wechat-profile.sh](scripts/wechat-profile.sh) 仅用于验证 Linux 机制，已被 `wxctl` 取代，请勿再手工维护。
 
