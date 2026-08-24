@@ -17,13 +17,13 @@ tasks:
       - task: build
 
   build:
-    desc: 编译 wxctl（Windows 输出 wxctl.exe）
+    desc: 编译 Linux wxctl
     cmds:
       - go build -o {{.APP}}{{exeExt}} ./cmd/wxctl
 
   install:
-    desc: 安装到 DESTDIR+BINDIR（仅 Linux / macOS）
-    platforms: [linux, darwin]
+    desc: 安装到 DESTDIR+BINDIR（仅 Linux）
+    platforms: [linux]
     deps: [build]
     cmds:
       - install -d {{.DESTDIR}}{{.BINDIR}}
@@ -47,7 +47,4 @@ tasks:
   clean:
     desc: 删除构建产物
     cmds:
-      - cmd: rm -f {{.APP}} {{.APP}}.exe
-        platforms: [linux, darwin]
-      - cmd: powershell -NoProfile -Command "Remove-Item -Force -ErrorAction SilentlyContinue '{{.APP}}.exe','{{.APP}}'"
-        platforms: [windows]
+      - rm -f {{.APP}}

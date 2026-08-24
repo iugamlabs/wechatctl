@@ -81,7 +81,7 @@ func (m Manager) Create(opts CreateOptions) (config.Instance, error) {
 	return inst, nil
 }
 
-// DisplayUser 返回实例的隔离身份（Windows 用户名，或 "-"）。
+// DisplayUser 返回实例的隔离身份（Linux 中为 "-"）。
 func (m Manager) DisplayUser(inst config.Instance) string {
 	return m.backend().DisplayUser(inst)
 }

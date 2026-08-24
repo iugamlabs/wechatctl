@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -152,7 +154,7 @@ func statusCmd() *cobra.Command {
 func desktopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "desktop",
-		Short: "Manage desktop / Start Menu launchers",
+		Short: "Manage desktop launchers",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "sync",

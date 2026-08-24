@@ -6,13 +6,13 @@ import (
 )
 
 func TestExpandPath(t *testing.T) {
-	home := filepath.Join("C:", "Users", "deali")
+	home := filepath.Join("/", "home", "deali")
 	cases := map[string]string{
 		"":        "",
 		"~":       home,
 		"~/docs":  filepath.Join(home, "docs"),
 		`~\docs`:  filepath.Join(home, "docs"),
-		`D:\data`: `D:\data`,
+		"/data":    "/data",
 	}
 	for in, want := range cases {
 		got := ExpandPath(home, in)

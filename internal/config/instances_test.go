@@ -10,7 +10,7 @@ import (
 func TestInstanceBackendRoundTrip(t *testing.T) {
 	reg := config.Registry{Instances: []config.Instance{{
 		Name:    "work",
-		Backend: "windows-redirect",
+		Backend: "linux-home",
 	}}}
 	data, err := toml.Marshal(reg)
 	if err != nil {
@@ -24,10 +24,10 @@ func TestInstanceBackendRoundTrip(t *testing.T) {
 		t.Fatalf("instances=%d", len(got.Instances))
 	}
 	inst := got.Instances[0]
-	if inst.Backend != "windows-redirect" {
+	if inst.Backend != "linux-home" {
 		t.Fatalf("round trip mismatch: %+v", inst)
 	}
-	if inst.EffectiveBackend() != "windows-redirect" {
+	if inst.EffectiveBackend() != "linux-home" {
 		t.Fatalf("EffectiveBackend=%q", inst.EffectiveBackend())
 	}
 }

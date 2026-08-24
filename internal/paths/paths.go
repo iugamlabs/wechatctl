@@ -61,7 +61,7 @@ func (l Layout) PidFile(name string) string {
 	return filepath.Join(l.RunDir, name+".pid")
 }
 
-// DesktopFile 返回实例启动器路径（Linux 为 .desktop，Windows 为 .lnk）。
+// DesktopFile 返回实例 .desktop 启动器路径。
 func (l Layout) DesktopFile(name string) string {
 	return filepath.Join(l.ApplicationsDir, DesktopPrefix+name+DesktopExt)
 }
