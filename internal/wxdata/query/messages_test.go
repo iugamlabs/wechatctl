@@ -1,11 +1,18 @@
 package query
 
 import (
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/star-plan/wechatctl/internal/wxdata"
+	"github.com/star-plan/wechatctl/internal/wxdata/cache"
 	"github.com/star-plan/wechatctl/internal/wxdata/keys"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestMsgTableName(t *testing.T) {
@@ -84,5 +91,57 @@ func TestPageRankedMessages(t *testing.T) {
 	out := pageRankedMessages(entries, 2, 0)
 	if len(out) != 2 || out[0].LocalID != 2 || out[1].LocalID != 3 {
 		t.Fatalf("got %+v", out)
+	}
+}
+
+func TestLoadSearchContextsFromDBQueryError(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	_, err = loadSearchContextsFromDB(db, &Book{})
+	if err == nil {
+		t.Fatal("expected error from closed db")
+	}
+}
+
+func TestResolveChatContextsPropagatesOpenDBError(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "db_storage")
+	cacheDir := filepath.Join(dir, "cache")
+	rel := "message/message_0.db"
+	keyMap := map[string]keys.KeyInfo{
+		rel: {EncKey: hex.EncodeToString(make([]byte, 32)), Salt: hex.EncodeToString(make([]byte, 16))},
+	}
+	c, err := cache.New(keyMap, dbDir, cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &wxdata.Store{Keys: keyMap, Cache: c}
+	book := &Book{
+		names: map[string]string{"wxid_x": "X"},
+		full:  []ContactRow{{Username: "wxid_x", NickName: "X"}},
+	}
+	_, _, _, err = ResolveChatContexts(store, book, []string{"X", "Y"})
+	if err == nil {
+		t.Fatal("expected OpenDB/decrypt error")
+	}
+}
+
+func TestResolveChatContextsUnknownNameNoError(t *testing.T) {
+	dir := t.TempDir()
+	c, err := cache.New(map[string]keys.KeyInfo{}, filepath.Join(dir, "db"), filepath.Join(dir, "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &wxdata.Store{Keys: map[string]keys.KeyInfo{}, Cache: c}
+	book := &Book{names: map[string]string{}, full: nil}
+	_, unresolved, _, err := ResolveChatContexts(store, book, []string{"nosuch"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(unresolved) != 1 || unresolved[0] != "nosuch" {
+		t.Fatalf("got unresolved %v", unresolved)
 	}
 }

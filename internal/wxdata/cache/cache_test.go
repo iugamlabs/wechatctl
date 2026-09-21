@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -289,4 +290,55 @@ func encryptPage(encKey, salt, iv, plain []byte, pgno uint32) []byte {
 	mac := pageHMAC(encKey, salt, page[crypto.SaltSize:crypto.PageSize-crypto.ReserveSize+16], 1)
 	copy(page[crypto.PageSize-64:], mac)
 	return page
+}
+
+func TestCacheWXCTLDebugLogsDecrypt(t *testing.T) {
+	t.Setenv("WXCTL_DEBUG", "1")
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "db_storage")
+	cacheDir := filepath.Join(dir, "wxdata", "cache")
+	rel := "session/session.db"
+	encPath := filepath.Join(dbDir, "session", "session.db")
+	encKey, salt := testKeySalt()
+	writeEncryptedDB(encPath, encKey, salt)
+
+	keyMap := map[string]keys.KeyInfo{
+		rel: {EncKey: hex.EncodeToString(encKey), Salt: hex.EncodeToString(salt)},
+	}
+	c, err := New(keyMap, dbDir, cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldErr := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = oldErr
+		w.Close()
+	})
+
+	done := make(chan struct{})
+	var stderr bytes.Buffer
+	go func() {
+		_, _ = io.Copy(&stderr, r)
+		close(done)
+	}()
+
+	if _, err := c.Get(rel); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	<-done
+
+	out := stderr.String()
+	if !strings.Contains(out, "wxctl debug: decrypted session/session.db") {
+		t.Fatalf("missing debug line, got %q", out)
+	}
+	if !strings.Contains(out, "in ") {
+		t.Fatalf("missing duration in debug line: %q", out)
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/star-plan/wechatctl/internal/wxdata/crypto"
 	"github.com/star-plan/wechatctl/internal/wxdata/errkind"
@@ -193,6 +194,9 @@ func (c *Cache) decryptOne(relKey string, info keys.KeyInfo, dbPath string, dbSt
 }
 
 func (c *Cache) decryptOneAttempt(relKey string, info keys.KeyInfo, dbPath string, dbStat, walStat os.FileInfo, allowRetry bool) (string, error) {
+	debug := os.Getenv("WXCTL_DEBUG") == "1"
+	start := time.Now()
+
 	page1 := make([]byte, crypto.SaltSize)
 	f, err := os.Open(dbPath)
 	if err != nil {
@@ -237,8 +241,11 @@ func (c *Cache) decryptOneAttempt(relKey string, info keys.KeyInfo, dbPath strin
 	if _, err := crypto.FullDecrypt(snapDB, tmpPath, encKey); err != nil {
 		return "", fmt.Errorf("full decrypt: %w", errkind.ErrDecrypt)
 	}
+	walFrames := 0
 	if walStat != nil {
-		if _, err := crypto.DecryptWAL(snapWal, tmpPath, encKey); err != nil {
+		var err error
+		walFrames, err = crypto.DecryptWAL(snapWal, tmpPath, encKey)
+		if err != nil {
 			os.Remove(tmpPath)
 			return "", fmt.Errorf("wal decrypt: %w", errkind.ErrDecrypt)
 		}
@@ -275,6 +282,13 @@ func (c *Cache) decryptOneAttempt(relKey string, info keys.KeyInfo, dbPath strin
 	}
 	if err := c.saveMtimes(); err != nil {
 		return "", err
+	}
+	if debug {
+		fmt.Fprintf(os.Stderr, "wxctl debug: decrypted %s in %s", relKey, time.Since(start).Round(time.Millisecond))
+		if walFrames > 0 {
+			fmt.Fprintf(os.Stderr, ", WAL frames patched: %d", walFrames)
+		}
+		fmt.Fprintln(os.Stderr)
 	}
 	return absOut, nil
 }

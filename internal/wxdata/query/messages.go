@@ -186,7 +186,7 @@ func ResolveChatContext(store *wxdata.Store, book *Book, chatName string) (*Chat
 }
 
 // ResolveChatContexts 多聊解析；返回失败名列表。
-func ResolveChatContexts(store *wxdata.Store, book *Book, chatNames []string) (resolved []*ChatContext, unresolved []string, missingTables []string) {
+func ResolveChatContexts(store *wxdata.Store, book *Book, chatNames []string) (resolved []*ChatContext, unresolved []string, missingTables []string, err error) {
 	seen := make(map[string]bool)
 	for _, chatName := range chatNames {
 		name := strings.TrimSpace(chatName)
@@ -194,10 +194,9 @@ func ResolveChatContexts(store *wxdata.Store, book *Book, chatNames []string) (r
 			unresolved = append(unresolved, "(空)")
 			continue
 		}
-		ctx, err := ResolveChatContext(store, book, name)
-		if err != nil {
-			unresolved = append(unresolved, name)
-			continue
+		ctx, resolveErr := ResolveChatContext(store, book, name)
+		if resolveErr != nil {
+			return nil, nil, nil, resolveErr
 		}
 		if ctx == nil {
 			unresolved = append(unresolved, name)
@@ -213,7 +212,7 @@ func ResolveChatContexts(store *wxdata.Store, book *Book, chatNames []string) (r
 		seen[ctx.Username] = true
 		resolved = append(resolved, ctx)
 	}
-	return resolved, unresolved, missingTables
+	return resolved, unresolved, missingTables, nil
 }
 
 func findMsgTablesForUser(store *wxdata.Store, username string, msgKeys []string) ([]messageTableRef, error) {
@@ -553,10 +552,10 @@ func CollectChatSearch(store *wxdata.Store, book *Book, ctx *ChatContext, keywor
 	return rankedSearchToHits(collected), failures, nil
 }
 
-func loadSearchContextsFromDB(db *sql.DB, book *Book) []tableQueryCtx {
+func loadSearchContextsFromDB(db *sql.DB, book *Book) ([]tableQueryCtx, error) {
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%'")
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	tableToUser := make(map[string]string)
@@ -592,7 +591,10 @@ func loadSearchContextsFromDB(db *sql.DB, book *Book) []tableQueryCtx {
 			TableName:   tableName,
 		})
 	}
-	return contexts
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return contexts, nil
 }
 
 // SearchAllMessages 全局搜索所有 message 分库。
@@ -604,7 +606,10 @@ func SearchAllMessages(store *wxdata.Store, book *Book, keyword string, startTS,
 		if err != nil {
 			return nil, nil, err
 		}
-		contexts := loadSearchContextsFromDB(db, book)
+		contexts, err := loadSearchContextsFromDB(db, book)
+		if err != nil {
+			return nil, nil, err
+		}
 		for i := range contexts {
 			contexts[i].RelKey = rel
 		}

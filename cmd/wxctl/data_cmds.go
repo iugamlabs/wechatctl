@@ -64,14 +64,14 @@ func initDataCmd() *cobra.Command {
 				}
 			}
 
-			if !keys.HasPtrace() {
-				return fmt.Errorf("need root or CAP_SYS_PTRACE to read WeChat process memory\n  sudo wxctl init-data %s\n  or: sudo setcap cap_sys_ptrace=ep $(command -v wxctl): %w", name, wxdata.ErrPermission)
-			}
-
 			rt := runtime.Manager{Layout: app.Layout, Config: app.Config}
 			pids := rt.InstancePIDs(name)
 			if len(pids) == 0 {
 				return fmt.Errorf("instance %q is not running (start it, then retry init-data): %w", name, wxdata.ErrNotRunning)
+			}
+
+			if !keys.HasPtrace() {
+				return fmt.Errorf("need root or CAP_SYS_PTRACE to read WeChat process memory\n  sudo wxctl init-data %s\n  or: sudo setcap cap_sys_ptrace=ep $(command -v wxctl): %w", name, wxdata.ErrPermission)
 			}
 
 			files, saltToDBs := keys.CollectDBFiles(dbDir)
@@ -384,7 +384,10 @@ func searchCmd() *cobra.Command {
 					}
 					scope = ctx.DisplayName
 				default:
-					resolved, unresolved, _ := query.ResolveChatContexts(store, book, chats)
+					resolved, unresolved, _, err := query.ResolveChatContexts(store, book, chats)
+					if err != nil {
+						return err
+					}
 					if len(resolved) == 0 {
 						return fmt.Errorf("no searchable chats: %w", wxdata.ErrChatNotFound)
 					}
