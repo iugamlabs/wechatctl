@@ -129,6 +129,83 @@ wxctl desktop sync
 | `config get\|set` | 全局配置 |
 | `migrate` | 从旧 Linux profiles 迁移 |
 | `export` / `import` | 元数据导入导出 |
+| `init-data` | 从运行中的微信进程提取 SQLCipher 密钥（需 root/CAP_SYS_PTRACE） |
+| `sessions` / `unread` | 会话列表 / 未读会话 |
+| `history` / `search` | 聊天记录 / 全文搜索 |
+| `contacts` / `members` | 联系人 / 群成员 |
+| `chat-export` | 导出聊天记录为 Markdown 或纯文本 |
+| `new-messages` | 自上次检查以来的新消息 |
+
+## 聊天数据查询（Linux）
+
+在实例生命周期之外，`wxctl` 可读取该实例微信加密库中的会话、联系人、消息等。**查询不需要 sudo，也不要求微信正在运行**；只要实例曾登录且已执行过 `init-data`，在 `wxctl stop` 之后仍可离线查询。
+
+### 首次准备：init-data
+
+抽密钥时**必须**先启动对应实例的微信，并使用 root 或 `CAP_SYS_PTRACE`（Ubuntu 等默认 `kernel.yama.ptrace_scope=1`，同用户 ptrace 通常失败，因 wxctl 用 `Setsid` 拉起微信而非父子进程）：
+
+```bash
+wxctl start work --detach
+sudo wxctl init-data work
+wxctl stop work    # 之后仍可 wxctl sessions work 等
+```
+
+`sudo wxctl ...` 会通过 `SUDO_USER` 解析你的真实 HOME（也可用 `WXCTL_REAL_HOME` 覆盖），无需 `sudo -E`。若需 capability 而非每次 sudo，可将已安装到受控路径（如 `/usr/local/bin`）的二进制执行 `sudo setcap cap_sys_ptrace=ep $(command -v wxctl)`——**不要**对 world-writable 路径 setcap。
+
+`init-data` 默认输出 text；可用 `--format json`。密钥与 wxid 轮换后：`wxctl init-data --force work`。
+
+### 数据与缓存路径
+
+每个实例的状态在伪造 HOME **之外**：
+
+```text
+~/.local/share/wxctl/wxdata/<name>/
+  all_keys.json       # SQLCipher 密钥（0600），等同于账号敏感数据
+  last_check.json     # new-messages 游标
+  lock                # 解密与游标写入共用 flock
+  cache/              # 解密后的明文 sqlite（0600），目录 0700
+    _mtimes.json
+    <hash>.db
+```
+
+`wxctl remove work --purge` 会同时删除 `instances/<name>` 与上述 `wxdata/<name>`。
+
+v1 **没有** `cache-clear` 子命令。需要强制全量重解密时：
+
+```bash
+rm -rf ~/.local/share/wxctl/wxdata/<name>/cache
+```
+
+解密前会把加密库（及存在的 `-wal`）**短暂复制为快照**再解密，以缩小与微信并发写 WAL 的撕裂窗口；仍可能在极端情况下遇到坏帧，此时删除 `cache/` 后重试。可选调试：`WXCTL_DEBUG=1` 时在 stderr 打印解密进度。
+
+### 常用查询示例
+
+```bash
+wxctl sessions work --limit 10 --format json
+wxctl unread work --format json
+wxctl contacts work --query 张三 --limit 20
+wxctl history work '文件传输助手' --limit 20 --format text
+wxctl search work 关键词 --limit 50
+wxctl members work '某群名称'
+wxctl chat-export work '某聊天' -o chat.md --format markdown
+wxctl new-messages work --format json
+```
+
+查询类命令 `--format` 默认为 `json`（`init-data` 默认为 text；`chat-export` 为 `markdown|txt`）。
+
+**已知限制：** `search` 使用 SQLite `LIKE`；会话摘要等经 zstd 压缩的 blob **不会**被 LIKE 命中（与 wechat-cli 相同）。
+
+元数据换机仍用 **`wxctl export` / `wxctl import`**（不含聊天内容）；聊天记录请自行备份 `~/.local/share/wxctl/instances/<name>` 与/或 `wxdata/<name>`。
+
+### Live 集成测试
+
+在已对本机实例执行 `init-data` 后：
+
+```bash
+WXCTL_LIVE_INSTANCE=work go test ./internal/wxdata/... -count=1 -timeout 120s
+```
+
+未设置 `WXCTL_LIVE_INSTANCE` 时该测试自动 Skip，`go test ./...` 在 CI/无微信环境下保持全绿。Live 测试不断言具体聊天正文（隐私）。
 
 ## 说明
 
