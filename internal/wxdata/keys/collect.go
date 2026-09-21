@@ -11,11 +11,11 @@ import (
 
 // DBFile 是 collect_db_files 的一条记录。
 type DBFile struct {
-	Rel    string
-	Abs    string
-	Size   int64
-	Salt   string
-	Page1  []byte
+	Rel   string
+	Abs   string
+	Size  int64
+	Salt  string
+	Page1 []byte
 }
 
 // CollectDBFiles 遍历 db_dir 收集 .db 文件及 page1 salt。

@@ -1,0 +1,50 @@
+package query
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/klauspost/compress/zstd"
+)
+
+func TestFormatMsgType(t *testing.T) {
+	if FormatMsgType(1) != "文本" {
+		t.Fatalf("got %q", FormatMsgType(1))
+	}
+	if FormatMsgType(49) != "链接/文件" {
+		t.Fatalf("got %q", FormatMsgType(49))
+	}
+	raw := FormatMsgType(999)
+	if !strings.HasPrefix(raw, "type=") {
+		t.Fatalf("got %q", raw)
+	}
+}
+
+func TestSplitGroupSummary(t *testing.T) {
+	in := "wxid_abc:\nhello"
+	if SplitGroupSummary(in) != "hello" {
+		t.Fatalf("got %q", SplitGroupSummary(in))
+	}
+}
+
+func TestDecompressSessionSummaryFailure(t *testing.T) {
+	got := FormatSessionSummary([]byte{0x01, 0x02, 0x03})
+	if got != SessionSummaryPlaceholder {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDecompressSessionSummarySuccess(t *testing.T) {
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := enc.EncodeAll([]byte("wxid:\nhi"), nil)
+	if err := enc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got := FormatSessionSummary(data)
+	if got != "hi" {
+		t.Fatalf("got %q", got)
+	}
+}

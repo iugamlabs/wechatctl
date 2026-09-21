@@ -3,8 +3,10 @@ module github.com/star-plan/wechatctl
 go 1.26.5
 
 require (
+	github.com/klauspost/compress v1.18.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.10.2
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -19,5 +21,4 @@ require (
 	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.59.0 // indirect
 )

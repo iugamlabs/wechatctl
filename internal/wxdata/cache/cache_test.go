@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/star-plan/wechatctl/internal/wxdata/errkind"
 	"github.com/star-plan/wechatctl/internal/wxdata/crypto"
+	"github.com/star-plan/wechatctl/internal/wxdata/errkind"
 	"github.com/star-plan/wechatctl/internal/wxdata/keys"
 )
 

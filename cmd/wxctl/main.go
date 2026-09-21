@@ -77,6 +77,11 @@ func rootCmd() *cobra.Command {
 		exportCmd(),
 		importCmd(),
 		initDataCmd(),
+		sessionsCmd(),
+		unreadCmd(),
+		newMessagesCmd(),
+		contactsCmd(),
+		membersCmd(),
 	)
 	return cmd
 }
