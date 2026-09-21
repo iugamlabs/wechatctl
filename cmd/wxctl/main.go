@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -10,16 +11,30 @@ import (
 	"github.com/star-plan/wechatctl/internal/config"
 	"github.com/star-plan/wechatctl/internal/paths"
 	"github.com/star-plan/wechatctl/internal/runtime"
+	"github.com/star-plan/wechatctl/internal/wxdata"
 )
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
-		if ee, ok := err.(*runtime.ExitError); ok {
-			os.Exit(ee.Code)
+		code, printErr := classifyRunError(err)
+		if printErr {
+			fmt.Fprintln(os.Stderr, err)
 		}
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(code)
 	}
+}
+
+// classifyRunError 决定退出码以及是否打印外层 err。
+// wxdata.Error 必须打印 wrap 后的全文（含 --force 提示）；ExitError 保持静默。
+func classifyRunError(err error) (code int, printErr bool) {
+	var we *wxdata.Error
+	if errors.As(err, &we) {
+		return we.Code, true
+	}
+	if ee, ok := err.(*runtime.ExitError); ok {
+		return ee.Code, false
+	}
+	return 1, true
 }
 
 type appContext struct {
@@ -61,6 +76,7 @@ func rootCmd() *cobra.Command {
 		migrateCmd(),
 		exportCmd(),
 		importCmd(),
+		initDataCmd(),
 	)
 	return cmd
 }

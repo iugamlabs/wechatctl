@@ -59,6 +59,20 @@ func TestHexMemoryRE(t *testing.T) {
 	}
 }
 
+func TestBuildEntriesAndMissingRequiredPattern(t *testing.T) {
+	files := []DBFile{
+		{Rel: "session/session.db", Salt: "aa", Size: 1024 * 1024},
+		{Rel: "sns/sns.db", Salt: "bb", Size: 2048 * 1024},
+	}
+	entries, missing := BuildEntries(files, map[string]string{"aa": "deadbeef"})
+	if entries["session/session.db"].EncKey != "deadbeef" || len(missing) != 1 || missing[0] != "sns/sns.db" {
+		t.Fatalf("entries=%v missing=%v", entries, missing)
+	}
+	if miss := MissingRequired(files, entries); len(miss) < 2 {
+		t.Fatalf("want contact + message missing, got %v", miss)
+	}
+}
+
 func TestLoadSaveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "all_keys.json")

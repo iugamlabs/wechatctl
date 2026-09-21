@@ -3,6 +3,7 @@ package keys
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,13 +18,16 @@ const (
 
 // KeyInfo 对应 all_keys.json 中单个库条目。
 type KeyInfo struct {
-	EncKey  string  `json:"enc_key,omitempty"`
-	Salt    string  `json:"salt,omitempty"`
-	SizeMB  float64 `json:"size_mb,omitempty"`
+	EncKey string  `json:"enc_key,omitempty"`
+	Salt   string  `json:"salt,omitempty"`
+	SizeMB float64 `json:"size_mb,omitempty"`
 }
 
 // HexMemoryRE 对齐 wechat-cli scanner_linux 内存 hex 模式。
 var HexMemoryRE = regexp.MustCompile(`x'([0-9a-fA-F]{64,192})'`)
+
+// MessageDBRelRE 匹配必需的分库 message/message_<N>.db。
+var MessageDBRelRE = regexp.MustCompile(`^message/message_\d+\.db$`)
 
 // StripMetadata 去掉 `_` 前缀元数据键。
 func StripMetadata(m map[string]KeyInfo) map[string]KeyInfo {
@@ -72,8 +76,7 @@ func Load(path string) (dbDir string, entries map[string]KeyInfo, err error) {
 	return dbDir, entries, nil
 }
 
-// Save 原子写入 all_keys.json（0600），含 _db_dir。
-func Save(path, dbDir string, entries map[string]KeyInfo) error {
+func marshalKeys(dbDir string, entries map[string]KeyInfo) ([]byte, error) {
 	out := make(map[string]interface{}, len(entries)+1)
 	out[metaDBDir] = dbDir
 	for k, v := range entries {
@@ -81,18 +84,97 @@ func Save(path, dbDir string, entries map[string]KeyInfo) error {
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+// Write 直接写入 path（0600），含 _db_dir。调用方负责 .tmp/.partial 命名。
+func Write(path, dbDir string, entries map[string]KeyInfo) error {
+	data, err := marshalKeys(dbDir, entries)
+	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// Save 原子写入 all_keys.json（0600），含 _db_dir。
+func Save(path, dbDir string, entries map[string]KeyInfo) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := Write(tmp, dbDir, entries); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// PartialPath 返回扫描失败时的调试文件路径。
+func PartialPath(keysPath string) string {
+	return keysPath + ".partial"
+}
+
+// SizeMB 对齐 Python round(sz/1024/1024, 1)。
+func SizeMB(size int64) float64 {
+	return math.Round(float64(size)/1024/1024*10) / 10
+}
+
+// RequiredRels 是 init-data 必须抽出密钥的库。
+var RequiredRels = []string{"session/session.db", "contact/contact.db"}
+
+func hasEncKey(entries map[string]KeyInfo, rel string) bool {
+	info, ok := GetKeyInfo(entries, rel)
+	return ok && info.EncKey != ""
+}
+
+// MissingRequired 返回尚未抽出密钥的必需库相对路径。
+func MissingRequired(files []DBFile, entries map[string]KeyInfo) []string {
+	var miss []string
+	for _, rel := range RequiredRels {
+		if !hasEncKey(entries, rel) {
+			miss = append(miss, rel)
+		}
+	}
+	hasMsg := false
+	var msgMiss []string
+	seenMsg := false
+	for _, f := range files {
+		if !MessageDBRelRE.MatchString(f.Rel) {
+			continue
+		}
+		seenMsg = true
+		if hasEncKey(entries, f.Rel) {
+			hasMsg = true
+		} else {
+			msgMiss = append(msgMiss, f.Rel)
+		}
+	}
+	if !hasMsg {
+		if seenMsg {
+			miss = append(miss, msgMiss...)
+		} else {
+			miss = append(miss, "message/message_*.db")
+		}
+	}
+	return miss
+}
+
+// BuildEntries 按 salt→enc_key 组装 JSON 条目，并列出未命中的 rel。
+func BuildEntries(files []DBFile, keyMap map[string]string) (entries map[string]KeyInfo, missing []string) {
+	entries = make(map[string]KeyInfo)
+	for _, f := range files {
+		if enc, ok := keyMap[f.Salt]; ok {
+			entries[f.Rel] = KeyInfo{
+				EncKey: enc,
+				Salt:   f.Salt,
+				SizeMB: SizeMB(f.Size),
+			}
+		} else {
+			missing = append(missing, f.Rel)
+		}
+	}
+	return entries, missing
 }
 
 func normalizeRelKey(rel string) string {

@@ -17,12 +17,12 @@ func DiscoverDBDir(instanceHome string) (string, error) {
 	root := filepath.Join(instanceHome, "xwechat_files")
 	st, err := os.Stat(root)
 	if err != nil || !st.IsDir() {
-		return "", fmt.Errorf("no WeChat data under %s (instance never logged in?)", instanceHome)
+		return "", fmt.Errorf("no WeChat data under %s (instance never logged in?): %w", instanceHome, ErrNoDBStorage)
 	}
 
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return "", fmt.Errorf("no WeChat data under %s (instance never logged in?)", instanceHome)
+		return "", fmt.Errorf("no WeChat data under %s (instance never logged in?): %w", instanceHome, ErrNoDBStorage)
 	}
 
 	var candidates []string
@@ -37,7 +37,7 @@ func DiscoverDBDir(instanceHome string) (string, error) {
 		candidates = append(candidates, dbStorage)
 	}
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("no WeChat data under %s (instance never logged in?)", instanceHome)
+		return "", fmt.Errorf("no WeChat data under %s (instance never logged in?): %w", instanceHome, ErrNoDBStorage)
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {

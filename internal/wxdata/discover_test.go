@@ -1,6 +1,7 @@
 package wxdata
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,6 +47,9 @@ func TestDiscoverDBDirMissingRoot(t *testing.T) {
 	_, err := DiscoverDBDir(t.TempDir())
 	if err == nil {
 		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrNoDBStorage) {
+		t.Fatalf("want ErrNoDBStorage, got %v", err)
 	}
 }
 
