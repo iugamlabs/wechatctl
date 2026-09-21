@@ -129,14 +129,16 @@ func (b *Book) ResolveUsername(chatName string) string {
 		return chatName
 	}
 	lower := strings.ToLower(chatName)
-	for uname, display := range b.names {
+	for _, row := range b.full {
+		display := b.DisplayName(row.Username)
 		if strings.EqualFold(lower, display) {
-			return uname
+			return row.Username
 		}
 	}
-	for uname, display := range b.names {
+	for _, row := range b.full {
+		display := b.DisplayName(row.Username)
 		if strings.Contains(strings.ToLower(display), lower) {
-			return uname
+			return row.Username
 		}
 	}
 	return ""

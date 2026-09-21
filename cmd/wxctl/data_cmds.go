@@ -306,9 +306,12 @@ func historyCmd() *cobra.Command {
 					return fmt.Errorf("chat %q not found: %w", chatName, wxdata.ErrChatNotFound)
 				}
 				if len(ctx.MessageTables) == 0 {
-					return fmt.Errorf("no message history for %q: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
+					return fmt.Errorf("找不到 %s 的消息记录: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
 				}
-				messages, failures := query.CollectChatHistory(store, book, ctx, startTS, endTS, limit, offset, typeFilter)
+				messages, failures, err := query.CollectChatHistory(store, book, ctx, startTS, endTS, limit, offset, typeFilter)
+				if err != nil {
+					return err
+				}
 				res := query.BuildHistoryResult(ctx, messages, failures, startTime, endTime, msgType, limit, offset)
 				return emitQuery(format, res, func(w io.Writer) { writeHistoryText(w, res) })
 			})
@@ -359,7 +362,10 @@ func searchCmd() *cobra.Command {
 
 				switch len(chats) {
 				case 0:
-					hits, failures = query.SearchAllMessages(store, book, keyword, startTS, endTS, candidateLimit, typeFilter)
+					hits, failures, err = query.SearchAllMessages(store, book, keyword, startTS, endTS, candidateLimit, typeFilter)
+					if err != nil {
+						return err
+					}
 					scope = "全部消息"
 				case 1:
 					ctx, err := query.ResolveChatContext(store, book, chats[0])
@@ -370,9 +376,12 @@ func searchCmd() *cobra.Command {
 						return fmt.Errorf("chat %q not found: %w", chats[0], wxdata.ErrChatNotFound)
 					}
 					if len(ctx.MessageTables) == 0 {
-						return fmt.Errorf("no message history for %q: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
+						return fmt.Errorf("找不到 %s 的消息记录: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
 					}
-					hits, failures = query.CollectChatSearch(store, book, ctx, keyword, startTS, endTS, candidateLimit, typeFilter)
+					hits, failures, err = query.CollectChatSearch(store, book, ctx, keyword, startTS, endTS, candidateLimit, typeFilter)
+					if err != nil {
+						return err
+					}
 					scope = ctx.DisplayName
 				default:
 					resolved, unresolved, _ := query.ResolveChatContexts(store, book, chats)
@@ -380,7 +389,10 @@ func searchCmd() *cobra.Command {
 						return fmt.Errorf("no searchable chats: %w", wxdata.ErrChatNotFound)
 					}
 					for _, ctx := range resolved {
-						h, f := query.CollectChatSearch(store, book, ctx, keyword, startTS, endTS, candidateLimit, typeFilter)
+						h, f, err := query.CollectChatSearch(store, book, ctx, keyword, startTS, endTS, candidateLimit, typeFilter)
+						if err != nil {
+							return err
+						}
 						hits = append(hits, h...)
 						failures = append(failures, f...)
 					}
@@ -452,9 +464,12 @@ func chatExportCmd() *cobra.Command {
 					return fmt.Errorf("chat %q not found: %w", chatName, wxdata.ErrChatNotFound)
 				}
 				if len(ctx.MessageTables) == 0 {
-					return fmt.Errorf("no message history for %q: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
+					return fmt.Errorf("找不到 %s 的消息记录: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
 				}
-				messages, _ := query.CollectChatHistory(store, book, ctx, startTS, endTS, limit, 0, nil)
+				messages, _, err := query.CollectChatHistory(store, book, ctx, startTS, endTS, limit, 0, nil)
+				if err != nil {
+					return err
+				}
 				if len(messages) == 0 {
 					fmt.Fprintf(os.Stderr, "%s 无消息记录\n", ctx.DisplayName)
 					return nil

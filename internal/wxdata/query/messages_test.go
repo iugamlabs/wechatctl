@@ -21,9 +21,9 @@ func TestMsgTableName(t *testing.T) {
 
 func TestMsgDBKeyFilter(t *testing.T) {
 	rels := sortedMsgDBKeys(map[string]keys.KeyInfo{
-		"message/message_0.db":   {},
+		"message/message_0.db":     {},
 		"message/biz_message_0.db": {},
-		"message/message_fts.db": {},
+		"message/message_fts.db":   {},
 	})
 	if len(rels) != 1 || rels[0] != "message/message_0.db" {
 		t.Fatalf("got %v", rels)
@@ -52,9 +52,9 @@ func TestHistoryResultJSONGolden(t *testing.T) {
 
 func TestSearchResultJSONGolden(t *testing.T) {
 	res := SearchResult{
-		Scope:   "全部消息",
-		Keyword: "x",
-		Results: []SearchHit{{Timestamp: 1, Time: "t", Chat: "c", Type: "文本", Text: "y"}},
+		Scope:    "全部消息",
+		Keyword:  "x",
+		Results:  []SearchHit{{Timestamp: 1, Time: "t", Chat: "c", Type: "文本", Text: "y"}},
 		Failures: nil,
 	}
 	data, err := json.Marshal(res)
@@ -62,8 +62,16 @@ func TestSearchResultJSONGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	if strings.Contains(s, "LocalID") || !strings.Contains(s, `"failures":null`) {
-		t.Fatalf("bad json: %s", s)
+	for _, key := range []string{`"timestamp"`, `"chat"`, `"time"`, `"type"`, `"text"`} {
+		if !strings.Contains(s, key) {
+			t.Fatalf("missing %s in json: %s", key, s)
+		}
+	}
+	if strings.Contains(s, "LocalID") || strings.Contains(s, "Timestamp") {
+		t.Fatalf("exported field names in json: %s", s)
+	}
+	if !strings.Contains(s, `"failures":null`) {
+		t.Fatalf("expected failures null: %s", s)
 	}
 }
 

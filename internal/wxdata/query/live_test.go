@@ -76,7 +76,10 @@ func TestLiveQuery(t *testing.T) {
 		t.Logf("no message tables for chat %q; skip history probe", chat)
 		return
 	}
-	_, failures := CollectChatHistory(store, book, ctx, nil, nil, 1, 0, nil)
+	_, failures, err := CollectChatHistory(store, book, ctx, nil, nil, 1, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(failures) > 0 {
 		t.Fatalf("history failures: %v", failures)
 	}

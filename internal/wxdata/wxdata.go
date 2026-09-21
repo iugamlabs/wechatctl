@@ -130,6 +130,10 @@ func (s *Store) LastCheckPath() string {
 
 // LoadLastCheck 读取 username -> last_timestamp 游标。
 func (s *Store) LoadLastCheck() (map[string]int64, error) {
+	return s.readLastCheck()
+}
+
+func (s *Store) readLastCheck() (map[string]int64, error) {
 	path := s.LastCheckPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -148,21 +152,30 @@ func (s *Store) LoadLastCheck() (map[string]int64, error) {
 	return state, nil
 }
 
+func (s *Store) writeLastCheck(state map[string]int64) error {
+	path := s.LastCheckPath()
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 // SaveLastCheck 原子写入游标（0600）。
 func (s *Store) SaveLastCheck(state map[string]int64) error {
 	return s.WithStateLock(func() error {
-		path := s.LastCheckPath()
-		data, err := json.Marshal(state)
-		if err != nil {
-			return err
-		}
-		data = append(data, '\n')
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o600); err != nil {
-			return err
-		}
-		return os.Rename(tmp, path)
+		return s.writeLastCheck(state)
 	})
+}
+
+// SaveLastCheckLocked 写入游标；调用方已通过 WithStateLock 持有实例锁。
+func (s *Store) SaveLastCheckLocked(state map[string]int64) error {
+	return s.writeLastCheck(state)
 }
 
 // RemoveLastCheck 删除游标（--reset）。

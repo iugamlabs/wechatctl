@@ -43,6 +43,32 @@ func TestFormatAppMessagePlaceholders(t *testing.T) {
 	if file != "[文件] a.pdf" {
 		t.Fatalf("file: %q", file)
 	}
+	longRef := strings.Repeat("引", 200)
+	quote := FormatAppMessageText(
+		`<msg><appmsg><type>57</type><title>回复标题</title><refermsg><displayname>张三</displayname><content>`+longRef+`</content></refermsg></appmsg></msg>`,
+		49<<32|57,
+	)
+	if !strings.HasPrefix(quote, "回复标题") {
+		t.Fatalf("quote title: %q", quote)
+	}
+	if !strings.Contains(quote, "↳") {
+		t.Fatalf("expected arrow: %q", quote)
+	}
+	if !strings.Contains(quote, "回复 张三:") {
+		t.Fatalf("expected reply prefix: %q", quote)
+	}
+	if !strings.HasSuffix(quote, "...") {
+		t.Fatalf("expected truncation: %q", quote)
+	}
+	const prefix = "回复 张三: "
+	idx := strings.Index(quote, prefix)
+	if idx < 0 {
+		t.Fatalf("missing ref prefix: %q", quote)
+	}
+	refPart := quote[idx+len(prefix):]
+	if len([]rune(refPart)) != 163 {
+		t.Fatalf("ref content runes: got %d want 163 (%q)", len([]rune(refPart)), refPart)
+	}
 }
 
 func TestParseMessageContentGroup(t *testing.T) {

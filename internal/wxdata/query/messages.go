@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -110,11 +111,11 @@ type SearchResult struct {
 
 // ChatContext 是单聊查询上下文。
 type ChatContext struct {
-	Query          string
-	Username       string
-	DisplayName    string
-	IsGroup        bool
-	MessageTables  []messageTableRef
+	Query         string
+	Username      string
+	DisplayName   string
+	IsGroup       bool
+	MessageTables []messageTableRef
 }
 
 type messageTableRef struct {
@@ -224,12 +225,15 @@ func findMsgTablesForUser(store *wxdata.Store, username string, msgKeys []string
 	for _, rel := range msgKeys {
 		db, err := store.OpenDB(rel, wxdata.KindMessage)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		var one int
 		err = db.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&one)
 		if err != nil {
-			continue
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, err
 		}
 		var maxCT sql.NullInt64
 		_ = db.QueryRow("SELECT MAX(create_time) FROM [" + tableName + "]").Scan(&maxCT)
@@ -375,9 +379,7 @@ func buildSearchHit(row []interface{}, tctx tableQueryCtx, book *Book, dbDir str
 		return nil, nil
 	}
 	senderFromContent, body := FormatMessageText(localID, localType, text, tctx.IsGroup)
-	if len(body) > 300 {
-		body = body[:300] + "..."
-	}
+	body = truncateRunes(body, 300)
 	sender := ResolveSenderLabel(realSenderID, senderFromContent, tctx.IsGroup, tctx.Username, tctx.DisplayName, idToUsername, book, dbDir)
 	return &SearchHit{
 		Timestamp: createTime,
@@ -440,7 +442,7 @@ func candidatePageSize(limit, offset int) int {
 }
 
 // CollectChatHistory 查询单聊历史（含多表合并分页）。
-func CollectChatHistory(store *wxdata.Store, book *Book, ctx *ChatContext, startTS, endTS *int64, limit, offset int, typeFilter []int64) ([]Message, []string) {
+func CollectChatHistory(store *wxdata.Store, book *Book, ctx *ChatContext, startTS, endTS *int64, limit, offset int, typeFilter []int64) ([]Message, []string, error) {
 	candidateLimit := candidatePageSize(limit, offset)
 	batchSize := candidateLimit
 	if batchSize > historyQueryBatchSize {
@@ -455,8 +457,7 @@ func CollectChatHistory(store *wxdata.Store, book *Book, ctx *ChatContext, start
 	for _, tctx := range iterTableContexts(ctx) {
 		db, err := store.OpenDB(tctx.RelKey, wxdata.KindMessage)
 		if err != nil {
-			failures = append(failures, tctx.RelKey+": "+err.Error())
-			continue
+			return nil, nil, err
 		}
 		idToUsername := loadName2ID(db)
 		fetchOffset := 0
@@ -487,7 +488,7 @@ func CollectChatHistory(store *wxdata.Store, book *Book, ctx *ChatContext, start
 			}
 		}
 	}
-	return pageRankedMessages(collected, limit, offset), failures
+	return pageRankedMessages(collected, limit, offset), failures, nil
 }
 
 func collectSearchFromDB(db *sql.DB, contexts []tableQueryCtx, book *Book, dbDir string, keyword string, startTS, endTS *int64, candidateLimit int, typeFilter []int64) ([]rankedSearch, []string) {
@@ -533,7 +534,7 @@ func collectSearchFromDB(db *sql.DB, contexts []tableQueryCtx, book *Book, dbDir
 }
 
 // CollectChatSearch 在单聊（可多表）内搜索；返回候选集（分页由 PageSearchHits 完成）。
-func CollectChatSearch(store *wxdata.Store, book *Book, ctx *ChatContext, keyword string, startTS, endTS *int64, candidateLimit int, typeFilter []int64) ([]SearchHit, []string) {
+func CollectChatSearch(store *wxdata.Store, book *Book, ctx *ChatContext, keyword string, startTS, endTS *int64, candidateLimit int, typeFilter []int64) ([]SearchHit, []string, error) {
 	byDB := make(map[string][]tableQueryCtx)
 	for _, tctx := range iterTableContexts(ctx) {
 		byDB[tctx.RelKey] = append(byDB[tctx.RelKey], tctx)
@@ -543,16 +544,13 @@ func CollectChatSearch(store *wxdata.Store, book *Book, ctx *ChatContext, keywor
 	for rel, contexts := range byDB {
 		db, err := store.OpenDB(rel, wxdata.KindMessage)
 		if err != nil {
-			for _, c := range contexts {
-				failures = append(failures, c.DisplayName+": "+err.Error())
-			}
-			continue
+			return nil, nil, err
 		}
 		entries, f := collectSearchFromDB(db, contexts, book, store.DBDir, keyword, startTS, endTS, candidateLimit, typeFilter)
 		collected = append(collected, entries...)
 		failures = append(failures, f...)
 	}
-	return rankedSearchToHits(collected), failures
+	return rankedSearchToHits(collected), failures, nil
 }
 
 func loadSearchContextsFromDB(db *sql.DB, book *Book) []tableQueryCtx {
@@ -598,14 +596,13 @@ func loadSearchContextsFromDB(db *sql.DB, book *Book) []tableQueryCtx {
 }
 
 // SearchAllMessages 全局搜索所有 message 分库。
-func SearchAllMessages(store *wxdata.Store, book *Book, keyword string, startTS, endTS *int64, candidateLimit int, typeFilter []int64) ([]SearchHit, []string) {
+func SearchAllMessages(store *wxdata.Store, book *Book, keyword string, startTS, endTS *int64, candidateLimit int, typeFilter []int64) ([]SearchHit, []string, error) {
 	var collected []rankedSearch
 	var failures []string
 	for _, rel := range sortedMsgDBKeys(store.Keys) {
 		db, err := store.OpenDB(rel, wxdata.KindMessage)
 		if err != nil {
-			failures = append(failures, rel+": "+err.Error())
-			continue
+			return nil, nil, err
 		}
 		contexts := loadSearchContextsFromDB(db, book)
 		for i := range contexts {
@@ -615,7 +612,7 @@ func SearchAllMessages(store *wxdata.Store, book *Book, keyword string, startTS,
 		collected = append(collected, entries...)
 		failures = append(failures, f...)
 	}
-	return rankedSearchToHits(collected), failures
+	return rankedSearchToHits(collected), failures, nil
 }
 
 func rankedSearchToHits(entries []rankedSearch) []SearchHit {

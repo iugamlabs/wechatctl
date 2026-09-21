@@ -75,9 +75,9 @@ func DecompressContent(content []byte, ct int) (string, bool) {
 		if err != nil {
 			return "", false
 		}
-		return string(out), true
+		return strings.ToValidUTF8(string(out), "\uFFFD"), true
 	}
-	return string(content), true
+	return strings.ToValidUTF8(string(content), "\uFFFD"), true
 }
 
 // SessionSummaryPlaceholder 是 sessions/unread/new-messages 解压失败占位。
@@ -201,9 +201,7 @@ func FormatAppMessageText(content string, localType int64) string {
 	case 57:
 		refContent := collapseText(app.ReferMsg.Content)
 		refName := strings.TrimSpace(app.ReferMsg.DisplayName)
-		if len(refContent) > 160 {
-			refContent = refContent[:160] + "..."
-		}
+		refContent = truncateRunes(refContent, 160)
 		quote := title
 		if quote == "" {
 			quote = "[引用消息]"
@@ -257,9 +255,9 @@ func FormatVoipMessageText(content string) string {
 		return "[通话]"
 	}
 	status := map[string]string{
-		"Canceled":            "已取消",
-		"Line busy":           "对方忙线",
-		"Call not answered":   "未接听",
+		"Canceled":             "已取消",
+		"Line busy":            "对方忙线",
+		"Call not answered":    "未接听",
 		"Call wasn't answered": "未接听",
 	}
 	if strings.HasPrefix(raw, "Duration:") {
@@ -330,4 +328,16 @@ func ResolveSenderLabel(realSenderID int64, senderFromContent string, isGroup bo
 // FormatMessageTime 格式化为 history/search 用的 time 字段。
 func FormatMessageTime(ts int64) string {
 	return time.Unix(ts, 0).Local().Format("2006-01-02 15:04")
+}
+
+// truncateRunes 按 Unicode 字符数截断并加省略号。
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "..."
 }

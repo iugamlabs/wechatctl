@@ -191,11 +191,6 @@ func ListAllSessions(store *wxdata.Store) ([]sessionRow, error) {
 
 // RunNewMessages 执行 new-messages 逻辑并更新游标。
 func RunNewMessages(store *wxdata.Store, book *Book, reset bool) (interface{}, error) {
-	if reset {
-		if err := store.RemoveLastCheck(); err != nil {
-			return nil, err
-		}
-	}
 	rows, err := ListAllSessions(store)
 	if err != nil {
 		return nil, err
@@ -205,75 +200,89 @@ func RunNewMessages(store *wxdata.Store, book *Book, reset bool) (interface{}, e
 		curr[r.username] = r
 	}
 
-	lastState, err := store.LoadLastCheck()
-	if err != nil {
-		return nil, err
-	}
-
 	newState := make(map[string]int64, len(curr))
 	for u, r := range curr {
 		newState[u] = r.timestamp
 	}
 
-	if len(lastState) == 0 {
-		var unreadMsgs []SessionItem
-		for _, r := range curr {
-			if r.unread > 0 {
-				unreadMsgs = append(unreadMsgs, rowToSessionItem(r, book, "15:04"))
+	var out interface{}
+	err = store.WithStateLock(func() error {
+		if reset {
+			if err := store.RemoveLastCheck(); err != nil {
+				return err
 			}
 		}
-		if err := store.SaveLastCheck(newState); err != nil {
-			return nil, err
+		lastState, err := store.LoadLastCheck()
+		if err != nil {
+			return err
 		}
-		if unreadMsgs == nil {
-			unreadMsgs = []SessionItem{}
-		}
-		return NewMessagesFirstResult{
-			FirstCall:   true,
-			UnreadCount: len(unreadMsgs),
-			Messages:    unreadMsgs,
-		}, nil
-	}
 
-	var newMsgs []NewMessageItem
-	for username, r := range curr {
-		prev := lastState[username]
-		if r.timestamp > prev {
-			isGroup := strings.Contains(username, "@chatroom")
-			lastMsg := FormatSessionSummary(r.summary)
-			senderDisplay := ""
-			if isGroup && r.sender != "" {
-				senderDisplay = book.DisplayName(r.sender)
-				if senderDisplay == r.sender && r.senderName != "" {
-					senderDisplay = r.senderName
+		if len(lastState) == 0 {
+			var unreadMsgs []SessionItem
+			for _, r := range curr {
+				if r.unread > 0 {
+					unreadMsgs = append(unreadMsgs, rowToSessionItem(r, book, "15:04"))
 				}
 			}
-			t := time.Unix(r.timestamp, 0)
-			newMsgs = append(newMsgs, NewMessageItem{
-				Chat:        book.DisplayName(username),
-				Username:    username,
-				IsGroup:     isGroup,
-				LastMessage: lastMsg,
-				MsgType:     FormatMsgType(r.msgType),
-				Sender:      senderDisplay,
-				Time:        t.Format("15:04:05"),
-				Timestamp:   r.timestamp,
-			})
+			if err := store.SaveLastCheckLocked(newState); err != nil {
+				return err
+			}
+			if unreadMsgs == nil {
+				unreadMsgs = []SessionItem{}
+			}
+			out = NewMessagesFirstResult{
+				FirstCall:   true,
+				UnreadCount: len(unreadMsgs),
+				Messages:    unreadMsgs,
+			}
+			return nil
 		}
-	}
-	sort.Slice(newMsgs, func(i, j int) bool {
-		return newMsgs[i].Timestamp < newMsgs[j].Timestamp
-	})
 
-	if err := store.SaveLastCheck(newState); err != nil {
+		var newMsgs []NewMessageItem
+		for username, r := range curr {
+			prev := lastState[username]
+			if r.timestamp > prev {
+				isGroup := strings.Contains(username, "@chatroom")
+				lastMsg := FormatSessionSummary(r.summary)
+				senderDisplay := ""
+				if isGroup && r.sender != "" {
+					senderDisplay = book.DisplayName(r.sender)
+					if senderDisplay == r.sender && r.senderName != "" {
+						senderDisplay = r.senderName
+					}
+				}
+				t := time.Unix(r.timestamp, 0)
+				newMsgs = append(newMsgs, NewMessageItem{
+					Chat:        book.DisplayName(username),
+					Username:    username,
+					IsGroup:     isGroup,
+					LastMessage: lastMsg,
+					MsgType:     FormatMsgType(r.msgType),
+					Sender:      senderDisplay,
+					Time:        t.Format("15:04:05"),
+					Timestamp:   r.timestamp,
+				})
+			}
+		}
+		sort.Slice(newMsgs, func(i, j int) bool {
+			return newMsgs[i].Timestamp < newMsgs[j].Timestamp
+		})
+
+		if err := store.SaveLastCheckLocked(newState); err != nil {
+			return err
+		}
+		if newMsgs == nil {
+			newMsgs = []NewMessageItem{}
+		}
+		out = NewMessagesResult{
+			FirstCall: false,
+			NewCount:  len(newMsgs),
+			Messages:  newMsgs,
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	if newMsgs == nil {
-		newMsgs = []NewMessageItem{}
-	}
-	return NewMessagesResult{
-		FirstCall: false,
-		NewCount:  len(newMsgs),
-		Messages:  newMsgs,
-	}, nil
+	return out, nil
 }

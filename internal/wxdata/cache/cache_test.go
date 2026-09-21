@@ -126,6 +126,60 @@ func TestCacheMtimeChangeRedecrypts(t *testing.T) {
 	}
 }
 
+func TestCacheSizeChangeRedecrypts(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, "db_storage")
+	cacheDir := filepath.Join(dir, "cache")
+	rel := "session/session.db"
+	encPath := filepath.Join(dbDir, "session", "session.db")
+	encKey, salt := testKeySalt()
+	writeEncryptedDB(encPath, encKey, salt)
+
+	keyMap := map[string]keys.KeyInfo{
+		rel: {EncKey: hex.EncodeToString(encKey), Salt: hex.EncodeToString(salt)},
+	}
+	c, err := New(keyMap, dbDir, cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Get(rel); err != nil {
+		t.Fatal(err)
+	}
+	raw1, err := os.ReadFile(filepath.Join(cacheDir, "_mtimes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(encPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := info.ModTime()
+	data, err := os.ReadFile(encPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doubled := append(append([]byte{}, data...), data...)
+	if err := os.WriteFile(encPath, doubled, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(encPath, mod, mod); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = c.Get(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw2, err := os.ReadFile(filepath.Join(cacheDir, "_mtimes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(raw1, raw2) {
+		t.Fatal("expected _mtimes.json update after source size change")
+	}
+}
+
 func TestCacheSaltMismatch(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, "db_storage")
