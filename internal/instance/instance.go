@@ -214,7 +214,16 @@ func (m Manager) Remove(name string, opts RemoveOptions) error {
 	}
 
 	home := m.backend().HomeDir(removed)
-	if _, err := os.Stat(home); err == nil && !opts.Yes {
+	wxdata := m.Layout.WxdataDir(removed.Name)
+	homeExists := false
+	if _, err := os.Stat(home); err == nil {
+		homeExists = true
+	}
+	wxdataExists := false
+	if _, err := os.Stat(wxdata); err == nil {
+		wxdataExists = true
+	}
+	if !opts.Yes && (homeExists || wxdataExists) {
 		in := opts.Stdin
 		if in == nil {
 			in = os.Stdin
@@ -223,7 +232,7 @@ func (m Manager) Remove(name string, opts RemoveOptions) error {
 		if out == nil {
 			out = os.Stdout
 		}
-		fmt.Fprintf(out, "This will permanently delete data at %s\nType the instance name %q to confirm: ", home, name)
+		fmt.Fprintf(out, "This will permanently delete instance data at %s\nand wxdata at %s\nType the instance name %q to confirm: ", home, wxdata, name)
 		reader := bufio.NewReader(in)
 		line, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
@@ -233,7 +242,10 @@ func (m Manager) Remove(name string, opts RemoveOptions) error {
 			return fmt.Errorf("confirmation failed; data not deleted (instance already unregistered)")
 		}
 	}
-	return m.backend().Remove(removed, true)
+	if err := m.backend().Remove(removed, true); err != nil {
+		return err
+	}
+	return os.RemoveAll(wxdata)
 }
 
 // SyncDesktops regenerates all desktop files for registered instances.

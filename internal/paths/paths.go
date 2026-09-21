@@ -2,6 +2,7 @@ package paths
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 )
 
@@ -26,15 +27,33 @@ type Layout struct {
 	LegacyRoot      string
 }
 
+// euidFn 与 lookupHomeFn 可在单测中替换（sudo HOME 三分支），默认走系统调用。
+var (
+	euidFn       = os.Geteuid
+	lookupHomeFn = lookupHomeByPasswd
+)
+
+func lookupHomeByPasswd(username string) (string, error) {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
+
 func realHome() (string, error) {
 	if h := os.Getenv("WXCTL_REAL_HOME"); h != "" {
 		return h, nil
 	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	if euidFn() == 0 {
+		if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+			h, err := lookupHomeFn(sudoUser)
+			if err == nil && h != "" {
+				return h, nil
+			}
+		}
 	}
-	return h, nil
+	return os.UserHomeDir()
 }
 
 // ExpandPath 将前导 ~ 展开为 home，同时接受 / 与 \。
@@ -59,6 +78,11 @@ func (l Layout) InstanceHome(name string) string {
 // PidFile returns the pidfile path for an instance.
 func (l Layout) PidFile(name string) string {
 	return filepath.Join(l.RunDir, name+".pid")
+}
+
+// WxdataDir 存放实例密钥与解密缓存（与伪造 HOME 并列，不进 instances/）。
+func (l Layout) WxdataDir(name string) string {
+	return filepath.Join(l.DataDir, "wxdata", name)
 }
 
 // DesktopFile 返回实例 .desktop 启动器路径。

@@ -36,15 +36,20 @@ func DefaultLayout() (Layout, error) {
 }
 
 func xdgConfigHome(home string) string {
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return v
+	// root/sudo 时忽略 env_keep 的 XDG_*，避免落到 /root。
+	if euidFn() != 0 {
+		if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+			return v
+		}
 	}
 	return filepath.Join(home, ".config")
 }
 
 func xdgDataHome(home string) string {
-	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
-		return v
+	if euidFn() != 0 {
+		if v := os.Getenv("XDG_DATA_HOME"); v != "" {
+			return v
+		}
 	}
 	return filepath.Join(home, ".local", "share")
 }
