@@ -270,6 +270,255 @@ func contactsCmd() *cobra.Command {
 	return cmd
 }
 
+func historyCmd() *cobra.Command {
+	var limit, offset int
+	var startTime, endTime, msgType, format string
+	cmd := &cobra.Command{
+		Use:   "history <name> <chat>",
+		Short: "Get chat message history for an instance",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkQueryFormat(format); err != nil {
+				return err
+			}
+			if err := ValidateHistoryArgs(limit, offset, startTime, endTime, msgType); err != nil {
+				return err
+			}
+			typeFilter, err := query.ParseMsgTypeFilter(msgType)
+			if err != nil {
+				return wrapInvalidArgs(err)
+			}
+			startTS, endTS, err := query.ParseTimeRange(startTime, endTime)
+			if err != nil {
+				return wrapInvalidArgs(err)
+			}
+			chatName := args[1]
+			return runWithStore(args[0], func(store *wxdata.Store) error {
+				book, _, err := query.LoadBook(store)
+				if err != nil {
+					return err
+				}
+				ctx, err := query.ResolveChatContext(store, book, chatName)
+				if err != nil {
+					return err
+				}
+				if ctx == nil {
+					return fmt.Errorf("chat %q not found: %w", chatName, wxdata.ErrChatNotFound)
+				}
+				if len(ctx.MessageTables) == 0 {
+					return fmt.Errorf("no message history for %q: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
+				}
+				messages, failures := query.CollectChatHistory(store, book, ctx, startTS, endTS, limit, offset, typeFilter)
+				res := query.BuildHistoryResult(ctx, messages, failures, startTime, endTime, msgType, limit, offset)
+				return emitQuery(format, res, func(w io.Writer) { writeHistoryText(w, res) })
+			})
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 50, "max messages to return")
+	cmd.Flags().IntVar(&offset, "offset", 0, "pagination offset")
+	cmd.Flags().StringVar(&startTime, "start-time", "", "start time YYYY-MM-DD [HH:MM[:SS]]")
+	cmd.Flags().StringVar(&endTime, "end-time", "", "end time YYYY-MM-DD [HH:MM[:SS]]")
+	cmd.Flags().StringVar(&msgType, "type", "", "filter: text|image|voice|video|sticker|location|link|file|call|system")
+	cmd.Flags().StringVar(&format, "format", "json", "json|text")
+	return cmd
+}
+
+func searchCmd() *cobra.Command {
+	var chats []string
+	var startTime, endTime, msgType, format string
+	var limit, offset int
+	cmd := &cobra.Command{
+		Use:   "search <name> <keyword>",
+		Short: "Search message content",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkQueryFormat(format); err != nil {
+				return err
+			}
+			if err := query.ValidatePagination(limit, offset, 500); err != nil {
+				return wrapInvalidArgs(err)
+			}
+			typeFilter, err := query.ParseMsgTypeFilter(msgType)
+			if err != nil {
+				return wrapInvalidArgs(err)
+			}
+			startTS, endTS, err := query.ParseTimeRange(startTime, endTime)
+			if err != nil {
+				return wrapInvalidArgs(err)
+			}
+			keyword := args[1]
+			candidateLimit := limit + offset
+			return runWithStore(args[0], func(store *wxdata.Store) error {
+				book, _, err := query.LoadBook(store)
+				if err != nil {
+					return err
+				}
+				var hits []query.SearchHit
+				var failures []string
+				var scope string
+
+				switch len(chats) {
+				case 0:
+					hits, failures = query.SearchAllMessages(store, book, keyword, startTS, endTS, candidateLimit, typeFilter)
+					scope = "全部消息"
+				case 1:
+					ctx, err := query.ResolveChatContext(store, book, chats[0])
+					if err != nil {
+						return err
+					}
+					if ctx == nil {
+						return fmt.Errorf("chat %q not found: %w", chats[0], wxdata.ErrChatNotFound)
+					}
+					if len(ctx.MessageTables) == 0 {
+						return fmt.Errorf("no message history for %q: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
+					}
+					hits, failures = query.CollectChatSearch(store, book, ctx, keyword, startTS, endTS, candidateLimit, typeFilter)
+					scope = ctx.DisplayName
+				default:
+					resolved, unresolved, _ := query.ResolveChatContexts(store, book, chats)
+					if len(resolved) == 0 {
+						return fmt.Errorf("no searchable chats: %w", wxdata.ErrChatNotFound)
+					}
+					for _, ctx := range resolved {
+						h, f := query.CollectChatSearch(store, book, ctx, keyword, startTS, endTS, candidateLimit, typeFilter)
+						hits = append(hits, h...)
+						failures = append(failures, f...)
+					}
+					if len(unresolved) > 0 {
+						failures = append(failures, "未找到: "+strings.Join(unresolved, "、"))
+					}
+					scope = fmt.Sprintf("%d 个聊天对象", len(resolved))
+				}
+
+				paged := query.PageSearchHits(hits, limit, offset)
+				res := &query.SearchResult{
+					Scope:     scope,
+					Keyword:   keyword,
+					Count:     len(paged),
+					Offset:    offset,
+					Limit:     limit,
+					StartTime: optionalStringPtr(startTime),
+					EndTime:   optionalStringPtr(endTime),
+					Type:      optionalStringPtr(msgType),
+					Results:   paged,
+					Failures:  failuresPtr(failures),
+				}
+				if res.Results == nil {
+					res.Results = []query.SearchHit{}
+				}
+				return emitQuery(format, res, func(w io.Writer) { writeSearchText(w, res) })
+			})
+		},
+	}
+	cmd.Flags().StringArrayVar(&chats, "chat", nil, "limit to chat (repeatable)")
+	cmd.Flags().StringVar(&startTime, "start-time", "", "start time")
+	cmd.Flags().StringVar(&endTime, "end-time", "", "end time")
+	cmd.Flags().IntVar(&limit, "limit", 20, "max results (max 500)")
+	cmd.Flags().IntVar(&offset, "offset", 0, "pagination offset")
+	cmd.Flags().StringVar(&msgType, "type", "", "message type filter")
+	cmd.Flags().StringVar(&format, "format", "json", "json|text")
+	return cmd
+}
+
+func chatExportCmd() *cobra.Command {
+	var format, outputPath, startTime, endTime string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "chat-export <name> <chat>",
+		Short: "Export chat history to markdown or plain text",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "markdown" && format != "txt" {
+				return fmt.Errorf("invalid --format %q (want markdown or txt)", format)
+			}
+			if err := query.ValidatePagination(limit, 0, 0); err != nil {
+				return wrapInvalidArgs(err)
+			}
+			startTS, endTS, err := query.ParseTimeRange(startTime, endTime)
+			if err != nil {
+				return wrapInvalidArgs(err)
+			}
+			chatName := args[1]
+			return runWithStore(args[0], func(store *wxdata.Store) error {
+				book, _, err := query.LoadBook(store)
+				if err != nil {
+					return err
+				}
+				ctx, err := query.ResolveChatContext(store, book, chatName)
+				if err != nil {
+					return err
+				}
+				if ctx == nil {
+					return fmt.Errorf("chat %q not found: %w", chatName, wxdata.ErrChatNotFound)
+				}
+				if len(ctx.MessageTables) == 0 {
+					return fmt.Errorf("no message history for %q: %w", ctx.DisplayName, wxdata.ErrChatNotFound)
+				}
+				messages, _ := query.CollectChatHistory(store, book, ctx, startTS, endTS, limit, 0, nil)
+				if len(messages) == 0 {
+					fmt.Fprintf(os.Stderr, "%s 无消息记录\n", ctx.DisplayName)
+					return nil
+				}
+				content := formatChatExport(format, ctx.DisplayName, ctx.IsGroup, startTime, endTime, messages)
+				if outputPath == "" {
+					fmt.Fprint(os.Stdout, content)
+					if !strings.HasSuffix(content, "\n") {
+						fmt.Fprintln(os.Stdout)
+					}
+					return nil
+				}
+				out := content
+				if !strings.HasSuffix(out, "\n") {
+					out += "\n"
+				}
+				if err := os.WriteFile(outputPath, []byte(out), 0o644); err != nil {
+					return err
+				}
+				fmt.Fprintf(os.Stderr, "已导出到: %s（%d 条消息）\n", outputPath, len(messages))
+				return nil
+			})
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "markdown", "markdown|txt")
+	cmd.Flags().StringVar(&outputPath, "output", "", "output file (default stdout)")
+	cmd.Flags().StringVar(&startTime, "start-time", "", "start time")
+	cmd.Flags().StringVar(&endTime, "end-time", "", "end time")
+	cmd.Flags().IntVar(&limit, "limit", 500, "max messages to export")
+	return cmd
+}
+
+func ValidateHistoryArgs(limit, offset int, startTime, endTime, msgType string) error {
+	if err := query.ValidatePagination(limit, offset, 0); err != nil {
+		return wrapInvalidArgs(err)
+	}
+	if _, err := query.ParseMsgTypeFilter(msgType); err != nil {
+		return wrapInvalidArgs(err)
+	}
+	_, _, err := query.ParseTimeRange(startTime, endTime)
+	if err != nil {
+		return wrapInvalidArgs(err)
+	}
+	return nil
+}
+
+func wrapInvalidArgs(err error) error {
+	return fmt.Errorf("%w: %v", wxdata.ErrInvalidArgs, err)
+}
+
+func optionalStringPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func failuresPtr(failures []string) *[]string {
+	if len(failures) == 0 {
+		return nil
+	}
+	return &failures
+}
+
 func membersCmd() *cobra.Command {
 	var format string
 	cmd := &cobra.Command{

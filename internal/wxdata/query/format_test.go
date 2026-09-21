@@ -34,6 +34,24 @@ func TestDecompressSessionSummaryFailure(t *testing.T) {
 	}
 }
 
+func TestFormatAppMessagePlaceholders(t *testing.T) {
+	link := FormatAppMessageText(`<msg><appmsg><type>5</type><title>Example</title></appmsg></msg>`, 49)
+	if link != "[链接] Example" {
+		t.Fatalf("link: %q", link)
+	}
+	file := FormatAppMessageText(`<msg><appmsg><type>6</type><title>a.pdf</title></appmsg></msg>`, 49<<32|6)
+	if file != "[文件] a.pdf" {
+		t.Fatalf("file: %q", file)
+	}
+}
+
+func TestParseMessageContentGroup(t *testing.T) {
+	s, body := ParseMessageContent("wxid_abc:\nhello", true)
+	if s != "wxid_abc" || body != "hello" {
+		t.Fatalf("got %q %q", s, body)
+	}
+}
+
 func TestDecompressSessionSummarySuccess(t *testing.T) {
 	enc, err := zstd.NewWriter(nil)
 	if err != nil {

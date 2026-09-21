@@ -82,6 +82,9 @@ func rootCmd() *cobra.Command {
 		newMessagesCmd(),
 		contactsCmd(),
 		membersCmd(),
+		historyCmd(),
+		searchCmd(),
+		chatExportCmd(),
 	)
 	return cmd
 }
